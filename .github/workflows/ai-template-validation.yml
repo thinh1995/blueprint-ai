@@ -18,7 +18,14 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Validate installer and template tests
         run: |
-          bash -n setup.sh tests/setup.sh tests/validate-docs.sh template-paths.sh
+          bash -n setup.sh tests/setup.sh tests/validate-docs.sh tests/render-mermaid.sh template-paths.sh
           bash tests/setup.sh
           bash tests/validate-docs.sh
-          python3 tests/validate-task-evidence.py
+          python3 tests/validate-project-docs.py
+          python3 tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
+          npm install -g @mermaid-js/mermaid-cli@11.4.2
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            MMDC_PUPPETEER_CONFIG=tests/puppeteer-no-sandbox.json bash tests/render-mermaid.sh
+          else
+            bash tests/render-mermaid.sh
+          fi

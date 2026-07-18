@@ -137,7 +137,7 @@ report_blocked_path() {
 }
 
 find_template_docs() {
-    find "$SRC_DIR/docs" -type f ! -name '.DS_Store' -print0
+    find "$SRC_DIR/docs" -path "$SRC_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print0
 }
 
 check_destination_path() {
@@ -188,7 +188,7 @@ preflight_destinations() {
     local relative_path
     local failed=false
 
-    for relative_path in "AGENTS.md" "CLAUDE.md" "template-manifest.json" "tools/validate-task-evidence.py"; do
+    for relative_path in "AGENTS.md" "CLAUDE.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py"; do
         check_destination_path "$relative_path" || failed=true
     done
     if [ "$WITH_LEGACY_AGENTS" = true ]; then
@@ -227,6 +227,7 @@ copy_file "$SRC_DIR/CLAUDE.md" "CLAUDE.md"
 copy_file "$SRC_DIR/template-manifest.json" "template-manifest.json"
 
 copy_file "$SRC_DIR/tests/validate-task-evidence.py" "tools/validate-task-evidence.py"
+copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
     copy_file "$SRC_DIR/AGENTS.md" ".agents/AGENTS.md"

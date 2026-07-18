@@ -10,7 +10,7 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
 ## 📁 Kiến trúc Thư mục
 
 - 🚀 **[[00 - Onboarding/1. Setup Guide|00 - Onboarding]]**
-  - Chứa hướng dẫn cài đặt môi trường, [[00 - Onboarding/2. Task Evidence|Task Evidence]] và **[[00 - Onboarding/3. AI Agent Workflow|AI Agent Workflow]]** bắt buộc trước task kỹ thuật.
+  - Chứa hướng dẫn cài đặt môi trường, [[00 - Onboarding/2. Task Evidence|Task Evidence]], [[00 - Onboarding/4. Whole-Project Documentation Update Prompt|Whole-Project Documentation Update Prompt]] và **[[00 - Onboarding/3. AI Agent Workflow|AI Agent Workflow]]** bắt buộc trước task kỹ thuật.
 
 - 📖 **[[01 - Overview/Overview|01 - Overview]]**
   - Cung cấp cái nhìn tổng quan về hệ thống, BA Foundation, sơ đồ Use Case và các liên kết quan trọng.
@@ -29,12 +29,13 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
     - **Product Spec**: Yêu cầu nghiệp vụ, User Story/Use Case, Business Rule, User Flow, Mockup.
     - **Tech Spec**: Thiết kế kỹ thuật, Logic code, Database updates.
     - **QA Spec**: Kịch bản kiểm thử (Test cases).
-  - Bắt đầu bằng cách copy [[05 - Product Features/_Feature Template/README|Feature Spec Template]] thành folder của feature mới, rồi đổi tên và điền đủ ba lớp tài liệu.
+  - Tạo folder cho feature thực trong đây. Copy reusable pack từ `docs/templates/feature-spec-template/` rồi đổi tên và điền đủ ba lớp tài liệu.
+
+- 🧰 **`docs/templates/`**
+  - Chứa reusable templates và sample; không phải tài liệu thực của dự án. Bắt đầu từ `feature-spec-template/`, `task-evidence-template.md` hoặc `examples/ai-support-agent/`.
 
 - ☁️ **Infrastructure & Deployment** và 📚 **User Manual & Help Center**
   - Starter notes nâng cao; cài bằng `--with-advanced-docs` khi cần vận hành hoặc hướng dẫn người dùng.
 
 ---
 *💡 Mẹo dùng Obsidian: Nhấn `Cmd/Ctrl + O` (Mac/Win) và gõ tên file để tìm kiếm & mở file nhanh chóng.*
-
-*Changelog: 2026-07-18 — thêm BA Foundation, Mermaid Diagram Standards và traceability cho v0.2.0.*

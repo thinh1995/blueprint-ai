@@ -65,7 +65,3 @@ Complete this note before treating feature specifications as an approved product
 | Decision ID | Decision | Rationale / evidence | Owner | Date | Status |
 |---|---|---|---|---|---|
 | D-01 |  |  |  |  | Open |
-
-## Changelog
-
-- 2026-07-18 — Added v0.2.0 BA baseline template.

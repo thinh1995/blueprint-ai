@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 
 import datetime as dt
+import argparse
 import hashlib
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EVIDENCE_DIR = ROOT / "docs/current/00 - Onboarding/task-evidence"
+parser = argparse.ArgumentParser()
+parser.add_argument("--evidence-dir", default="docs/current/00 - Onboarding/task-evidence")
+parser.add_argument("--require-completed", action="store_true")
+args = parser.parse_args()
+EVIDENCE_DIR = ROOT / args.evidence_dir
+if not EVIDENCE_DIR.is_dir() and args.require_completed:
+    raise ValueError(f"evidence directory does not exist: {EVIDENCE_DIR}")
 
 
 def frontmatter(text: str, path: Path) -> dict[str, str]:
@@ -29,7 +36,7 @@ def require(data: dict[str, str], keys: list[str], path: Path) -> None:
 
 
 completed_records = 0
-for path in EVIDENCE_DIR.glob("*.md"):
+for path in (EVIDENCE_DIR.glob("*.md") if EVIDENCE_DIR.is_dir() else []):
     if path.name.startswith("_"):
         continue
     text = path.read_text()
@@ -47,7 +54,7 @@ for path in EVIDENCE_DIR.glob("*.md"):
     if digest != data["output_artifact_sha256"].lower():
         raise ValueError(f"{path}: output artifact checksum does not match")
 
-if "--require-completed" in sys.argv and completed_records == 0:
+if args.require_completed and completed_records == 0:
     raise ValueError("no completed task evidence record found")
 
 inventory = ROOT / "docs/current/02 - Architecture/Generated Reference Inventory.md"

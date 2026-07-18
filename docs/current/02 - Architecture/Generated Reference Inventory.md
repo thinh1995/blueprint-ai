@@ -33,7 +33,3 @@ Khi project có công cụ inventory/code intelligence, ghi hoặc liên kết d
 ## Inventory
 
 Add generated output or a link to it here. Do not manually curate this section without marking the inventory as non-generated.
-
-## Changelog
-
-- 2026-07-17 — Added provenance and verification requirements for generated inventories.

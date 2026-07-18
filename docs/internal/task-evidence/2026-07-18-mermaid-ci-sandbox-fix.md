@@ -1,11 +1,11 @@
 ---
-status: draft
+status: completed
 task_id: mermaid-ci-sandbox-fix
 recorded_at: 2026-07-18T15:28:55+07:00
 recorded_by: Codex
-source_revision: a08486c3ed1716d46ec05fdba320f758124e842b
-completed_at:
-reviewer:
+source_revision: 39b0eeb46144a4563a04bc730c379329c0e04154
+completed_at: 2026-07-18T15:40:36+07:00
+reviewer: thinh1995
 environment: local-and-github-actions
 output_artifact_sha256: 38b0daf82a2d252dd08f0294eafc1eba45c91eac16ae54e3b434c3962d61708b
 output_artifact_path: CHANGELOG.md
@@ -33,8 +33,8 @@ output_artifact_path: CHANGELOG.md
 |---|---|---|
 | Fact | GitHub Ubuntu CI failed before rendering because Chromium reported no usable sandbox. | User-provided GitHub Actions log, 2026-07-18. |
 | Fact | Mermaid CLI supports a Puppeteer config file through `-p`. | Mermaid CLI README, checked 2026-07-18. |
-| Assumption | `--no-sandbox` is acceptable only in the ephemeral Ubuntu validation runner for this repository. | Reviewer to confirm before release. |
-| Unknown | The next GitHub Actions Ubuntu run has not yet confirmed the runner-specific workaround. | CI result after push. |
+| Fact | `--no-sandbox` is accepted only for the ephemeral Ubuntu validation runner; macOS retains default browser sandbox behavior. | Reviewer/sign-off: `thinh1995`, 2026-07-18. |
+| Fact | The GitHub Actions run after commit `39b0eeb` succeeded. | User-confirmed CI result, 2026-07-18. |
 
 ## Safety and completion
 
@@ -42,4 +42,4 @@ output_artifact_path: CHANGELOG.md
 - Command output artifact path and SHA-256: `CHANGELOG.md`; `38b0daf82a2d252dd08f0294eafc1eba45c91eac16ae54e3b434c3962d61708b`.
 - Changed files and docs changelog location: Mermaid renderer, GitHub workflow, `tests/puppeteer-no-sandbox.json`, root changelog.
 - Residual risk / rollback: `--no-sandbox` reduces browser isolation on Ubuntu CI; remove the Linux-only config and revert this task if it is not acceptable.
-- Reviewer/sign-off: Pending human reviewer after GitHub Actions result.
+- Reviewer/sign-off: `thinh1995`, after successful GitHub Actions run on 2026-07-18.

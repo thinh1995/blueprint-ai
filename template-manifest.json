@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "1.5.0",
+  "version": "0.1",
   "managed_paths": [
     "AGENTS.md",
     "CLAUDE.md",

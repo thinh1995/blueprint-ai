@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `1.5.0`. See [V1 Acceptance Matrix](V1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.1`. See [V1 Acceptance Matrix](V1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
 1. **Rule cho AI Agent (`AGENTS.md` và `CLAUDE.md`)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. `CLAUDE.md` là entrypoint cho Claude Code; dùng `--with-legacy-agents` nếu tool cần `.agents/AGENTS.md`.

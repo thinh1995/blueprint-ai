@@ -1,6 +1,6 @@
 # V1 Acceptance Matrix
 
-Release target: `1.5.0`  
+Release target: `0.1`
 Scope: safe installer, core/advanced docs, evidence-first rules, per-task evidence, inventory trust gate, validator, and CI template.
 
 | Area | Acceptance criterion | Validation | Final review |

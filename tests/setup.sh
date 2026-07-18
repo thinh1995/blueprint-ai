@@ -71,7 +71,7 @@ assert_file_contains "$target/AGENTS.md" "custom rules"
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/tools/validate-task-evidence.py" ] || fail "default install did not copy task-evidence validator"
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
-assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
+assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
 for managed_path in "AGENTS.md" "CLAUDE.md" "template-manifest.json" "tools/validate-task-evidence.py" "docs/current"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""

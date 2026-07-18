@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.1",
+  "version": "0.2.0",
   "managed_paths": [
     "AGENTS.md",
     "CLAUDE.md",
@@ -9,7 +9,7 @@
     "docs/current"
   ],
   "profiles": {
-    "core": ["AGENTS.md", "CLAUDE.md", "template-manifest.json", "docs/current"],
+    "core": ["AGENTS.md", "CLAUDE.md", "template-manifest.json", "tools/validate-task-evidence.py", "docs/current"],
     "--with-legacy-agents": [".agents/AGENTS.md"],
     "--with-advanced-docs": [
       "docs/current/Advanced Docs MOC.md",

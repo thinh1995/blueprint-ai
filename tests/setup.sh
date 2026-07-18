@@ -67,11 +67,16 @@ printf 'custom rules\n' > "$target/AGENTS.md"
 ) > "$TEST_DIR/default-install.txt"
 assert_file_contains "$target/AGENTS.md" "custom rules"
 [ -f "$target/docs/current/Vault Index MOC.md" ] || fail "default install did not copy docs"
+[ -f "$target/docs/current/01 - Overview/BA Foundation.md" ] || fail "default install did not copy BA Foundation"
+[ -f "$target/docs/current/08 - Diagram Standards/Diagram Standards.md" ] || fail "default install did not copy Diagram Standards"
+for sample_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md"; do
+    [ -f "$target/docs/current/05 - Product Features/Example AI Support Agent/$sample_file" ] || fail "default install did not copy AI Agent sample: $sample_file"
+done
 [ -f "$target/template-manifest.json" ] || fail "default install did not copy template manifest"
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/tools/validate-task-evidence.py" ] || fail "default install did not copy task-evidence validator"
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
-assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+"'
+assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
 for managed_path in "AGENTS.md" "CLAUDE.md" "template-manifest.json" "tools/validate-task-evidence.py" "docs/current"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""

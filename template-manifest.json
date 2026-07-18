@@ -1,0 +1,22 @@
+{
+  "template": "ai-agent-obsidian-project-template",
+  "version": "1.5.0",
+  "managed_paths": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "template-manifest.json",
+    "tools/validate-task-evidence.py",
+    "docs/current"
+  ],
+  "profiles": {
+    "core": ["AGENTS.md", "CLAUDE.md", "template-manifest.json", "docs/current"],
+    "--with-legacy-agents": [".agents/AGENTS.md"],
+    "--with-advanced-docs": [
+      "docs/current/Advanced Docs MOC.md",
+      "docs/current/03 - API & Integrations/API Reference.md",
+      "docs/current/04 - Backend & Core/Service Layer.md",
+      "docs/current/06 - Infrastructure & Deployment/Infrastructure Spec.md",
+      "docs/current/07 - User Manual & Help Center/User Manual.md"
+    ]
+  }
+}

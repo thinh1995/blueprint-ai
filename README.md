@@ -1,10 +1,10 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.1`. See [V1 Acceptance Matrix](V1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.2.0`. See [V2 Acceptance Matrix](V2_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
 1. **Rule cho AI Agent (`AGENTS.md` và `CLAUDE.md`)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. `CLAUDE.md` là entrypoint cho Claude Code; dùng `--with-legacy-agents` nếu tool cần `.agents/AGENTS.md`.
-2. **Cấu trúc Obsidian (`docs/current/`)**: Chuẩn "Docs as Code" giúp AI và con người có cùng một Knowledge Base.
+2. **Cấu trúc Obsidian (`docs/current/`)**: Chuẩn "Docs as Code" giúp AI và con người có cùng một Knowledge Base, với BA Foundation, Mermaid là định dạng sơ đồ chính thức và sample AI Agent hoàn chỉnh.
 
 ## Cách sử dụng cho Project mới
 
@@ -28,11 +28,12 @@ Current release: `0.1`. See [V1 Acceptance Matrix](V1_ACCEPTANCE_MATRIX.md) and 
      └── current/
          ├── 00 - Onboarding/
          ├── 01 - Overview/
-         ├── 02 - Architecture/
-         ├── 05 - Product Features/
+        ├── 02 - Architecture/
+        ├── 05 - Product Features/
+        ├── 08 - Diagram Standards/
          └── Vault Index MOC.md
    ```
-4. Mở thư mục project bằng ứng dụng Obsidian (Open as Vault) để bắt đầu. Các starter note của project được đánh dấu `status: draft`; hãy điền chúng bằng thông tin dự án trước khi coi chúng là source of truth. `AI Agent Workflow` và `Vault Index MOC` là governing notes của template nên có `status: active`. Claude Code sẽ đọc `CLAUDE.md`; các tool khác nên đọc `AGENTS.md` theo convention của chúng.
+4. Mở thư mục project bằng ứng dụng Obsidian (Open as Vault) để bắt đầu. Các starter note của project được đánh dấu `status: draft`; hãy điền chúng bằng thông tin dự án trước khi coi chúng là source of truth. Mermaid là chuẩn sơ đồ chính thức; tham chiếu `08 - Diagram Standards` và sample `Example AI Support Agent` khi tạo feature mới. `AI Agent Workflow` và `Vault Index MOC` là governing notes của template nên có `status: active`. Claude Code sẽ đọc `CLAUDE.md`; các tool khác nên đọc `AGENTS.md` theo convention của chúng.
 
 ## Kiểm tra template
 

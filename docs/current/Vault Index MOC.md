@@ -13,17 +13,20 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
   - Chứa hướng dẫn cài đặt môi trường, [[00 - Onboarding/2. Task Evidence|Task Evidence]] và **[[00 - Onboarding/3. AI Agent Workflow|AI Agent Workflow]]** bắt buộc trước task kỹ thuật.
 
 - 📖 **[[01 - Overview/Overview|01 - Overview]]**
-  - Cung cấp cái nhìn tổng quan về hệ thống, sơ đồ Use Case và các liên kết quan trọng.
+  - Cung cấp cái nhìn tổng quan về hệ thống, BA Foundation, sơ đồ Use Case và các liên kết quan trọng.
 
 - 🏗️ **[[02 - Architecture/Architecture|02 - Architecture]]**
   - Chứa các tài liệu quyết định kiến trúc hệ thống, mô hình dữ liệu (Data Models).
+
+- 📐 **[[08 - Diagram Standards/Diagram Standards|08 - Diagram Standards]]**
+  - Mermaid là định dạng sơ đồ chính thức; quy định flow, sequence, state, data boundary và architecture diagrams.
 
 - 🔌 **03 - API & Integrations** và **04 - Backend & Core**
   - Starter notes nâng cao; cài bằng `--with-advanced-docs` khi project cần API/backend docs riêng, rồi mở `Advanced Docs MOC`.
 
 - 🧩 **`05 - Product Features`** *(Trung tâm dự án)*
   - Thư mục quan trọng nhất, chia nhỏ hệ thống thành các module tính năng độc lập. Mỗi tính năng bao gồm 3 lớp tài liệu chuẩn:
-    - **Product Spec**: Yêu cầu nghiệp vụ, User Flow, Mockup.
+    - **Product Spec**: Yêu cầu nghiệp vụ, User Story/Use Case, Business Rule, User Flow, Mockup.
     - **Tech Spec**: Thiết kế kỹ thuật, Logic code, Database updates.
     - **QA Spec**: Kịch bản kiểm thử (Test cases).
   - Bắt đầu bằng cách copy [[05 - Product Features/_Feature Template/README|Feature Spec Template]] thành folder của feature mới, rồi đổi tên và điền đủ ba lớp tài liệu.
@@ -34,4 +37,4 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
 ---
 *💡 Mẹo dùng Obsidian: Nhấn `Cmd/Ctrl + O` (Mac/Win) và gõ tên file để tìm kiếm & mở file nhanh chóng.*
 
-*Changelog: 2026-07-17 — thêm Feature Spec Template cho Product/Tech/QA specs.*
+*Changelog: 2026-07-18 — thêm BA Foundation, Mermaid Diagram Standards và traceability cho v0.2.0.*

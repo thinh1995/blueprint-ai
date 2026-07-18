@@ -31,4 +31,25 @@ require_text "AGENTS.md" "untrusted data"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified: false"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified_at:"
 
+require_text "docs/current/01 - Overview/BA Foundation.md" "Stakeholders and RACI"
+require_text "docs/current/01 - Overview/BA Foundation.md" "Business rules catalogue"
+require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" "Mermaid is the official diagram format"
+require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" '```mermaid'
+require_text "docs/current/05 - Product Features/_Feature Template/1. Product Spec.md" "Stakeholder, user stories, and use cases"
+require_text "docs/current/05 - Product Features/_Feature Template/1. Product Spec.md" "## Traceability"
+require_text "docs/current/05 - Product Features/_Feature Template/2. Tech Spec.md" "Tool permissions, timeout, retry, fallback"
+require_text "docs/current/05 - Product Features/_Feature Template/3. QA Spec.md" "prompt injection"
+for file in \
+    "docs/current/05 - Product Features/Example AI Support Agent/1. Product Spec.md" \
+    "docs/current/05 - Product Features/Example AI Support Agent/2. Tech Spec.md" \
+    "docs/current/05 - Product Features/Example AI Support Agent/3. QA Spec.md"; do
+    require_text "$file" "status: example"
+done
+require_text "docs/current/05 - Product Features/Example AI Support Agent/1. Product Spec.md" '```mermaid'
+require_text "docs/current/05 - Product Features/Example AI Support Agent/2. Tech Spec.md" '```mermaid'
+require_text "docs/current/05 - Product Features/Example AI Support Agent/2. Tech Spec.md" "sequenceDiagram"
+require_text "docs/current/05 - Product Features/Example AI Support Agent/2. Tech Spec.md" "stateDiagram-v2"
+require_text "V2_ACCEPTANCE_MATRIX.md" 'Release target: `0.2.0`'
+python3 "$ROOT_DIR/tests/validate-v020-docs.py"
+
 echo "PASS: documentation guardrail validation"

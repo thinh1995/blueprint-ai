@@ -24,4 +24,8 @@ jobs:
           python3 tests/validate-project-docs.py
           python3 tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
           npm install -g @mermaid-js/mermaid-cli@11.4.2
-          bash tests/render-mermaid.sh
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            MMDC_PUPPETEER_CONFIG=tests/puppeteer-no-sandbox.json bash tests/render-mermaid.sh
+          else
+            bash tests/render-mermaid.sh
+          fi

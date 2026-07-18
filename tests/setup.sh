@@ -110,6 +110,11 @@ if python3 "$file_uri_target/tools/validate-docs.py" > "$TEST_DIR/file-uri-outpu
 fi
 assert_file_contains "$TEST_DIR/file-uri-output.txt" "unsupported Markdown URI scheme file:"
 
+if MMDC_BIN=true MMDC_PUPPETEER_CONFIG=tests/missing-puppeteer-config.json bash "$TEMPLATE_DIR/tests/render-mermaid.sh" > "$TEST_DIR/missing-puppeteer-config-output.txt" 2>&1; then
+    fail "Mermaid renderer accepted a missing Puppeteer config"
+fi
+assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Puppeteer config"
+
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"

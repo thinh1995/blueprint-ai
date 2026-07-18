@@ -3,6 +3,7 @@
 set -euo pipefail
 
 MMDC_BIN="${MMDC_BIN:-mmdc}"
+MMDC_PUPPETEER_CONFIG="${MMDC_PUPPETEER_CONFIG:-}"
 if ! command -v "$MMDC_BIN" >/dev/null 2>&1; then
     echo "Missing Mermaid CLI '$MMDC_BIN'. Install @mermaid-js/mermaid-cli or set MMDC_BIN." >&2
     exit 2
@@ -10,6 +11,14 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ai-template-mermaid.XXXXXX")"
+
+if [ -n "$MMDC_PUPPETEER_CONFIG" ] && [[ "$MMDC_PUPPETEER_CONFIG" != /* ]]; then
+    MMDC_PUPPETEER_CONFIG="$ROOT_DIR/$MMDC_PUPPETEER_CONFIG"
+fi
+if [ -n "$MMDC_PUPPETEER_CONFIG" ] && [ ! -f "$MMDC_PUPPETEER_CONFIG" ]; then
+    echo "Missing Puppeteer config: $MMDC_PUPPETEER_CONFIG" >&2
+    exit 2
+fi
 
 cleanup() {
     rm -rf "$WORK_DIR"
@@ -31,7 +40,11 @@ diagram_count="$(find "$WORK_DIR" -type f -name '*.mmd' | wc -l | tr -d ' ')"
 [ "$diagram_count" -gt 0 ] || { echo "No Mermaid diagrams found" >&2; exit 1; }
 
 for diagram in "$WORK_DIR"/*.mmd; do
-    "$MMDC_BIN" -i "$diagram" -o "${diagram%.mmd}.svg" >/dev/null
+    render_args=(-i "$diagram" -o "${diagram%.mmd}.svg")
+    if [ -n "$MMDC_PUPPETEER_CONFIG" ]; then
+        render_args=(-p "$MMDC_PUPPETEER_CONFIG" "${render_args[@]}")
+    fi
+    "$MMDC_BIN" "${render_args[@]}" >/dev/null
     [ -s "${diagram%.mmd}.svg" ] || { echo "Mermaid render produced no SVG: $diagram" >&2; exit 1; }
 done
 

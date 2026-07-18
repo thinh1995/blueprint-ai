@@ -1,15 +1,35 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "managed_paths": [
     "AGENTS.md",
     "CLAUDE.md",
     "template-manifest.json",
     "tools/validate-task-evidence.py",
-    "docs/current"
+    "tools/validate-docs.py",
+    "docs/current",
+    "docs/templates"
   ],
   "profiles": {
-    "core": ["AGENTS.md", "CLAUDE.md", "template-manifest.json", "tools/validate-task-evidence.py", "docs/current"],
+    "core": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "template-manifest.json",
+      "tools/validate-task-evidence.py",
+      "tools/validate-docs.py",
+      "docs/current/00 - Onboarding/1. Setup Guide.md",
+      "docs/current/00 - Onboarding/2. Task Evidence.md",
+      "docs/current/00 - Onboarding/3. AI Agent Workflow.md",
+      "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md",
+      "docs/current/01 - Overview/BA Foundation.md",
+      "docs/current/01 - Overview/Overview.md",
+      "docs/current/02 - Architecture/Architecture.md",
+      "docs/current/02 - Architecture/Generated Reference Inventory.md",
+      "docs/current/05 - Product Features/README.md",
+      "docs/current/08 - Diagram Standards/Diagram Standards.md",
+      "docs/current/Vault Index MOC.md",
+      "docs/templates"
+    ],
     "--with-legacy-agents": [".agents/AGENTS.md"],
     "--with-advanced-docs": [
       "docs/current/Advanced Docs MOC.md",

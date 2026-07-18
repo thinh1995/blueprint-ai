@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-07-18
+
+- Separated downstream project notes, reusable templates, and source-only repository records.
+- Added downstream documentation validation and whole-project documentation prompts.
+- Strengthened installer boundaries, link validation, Mermaid structure validation, and sample traceability checks.
+- Reject Markdown links that resolve outside the project root and syntax-check the Mermaid renderer in CI.
+- Reject `file:` Markdown URIs and make the core manifest match the default installation exactly.
+
 ## 0.2.0 — 2026-07-18
 
 - Added BA Foundation templates for goals, stakeholders/RACI, personas, business rules, glossary, and risks.

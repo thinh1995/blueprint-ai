@@ -4,7 +4,7 @@ owner: product
 ---
 # Example AI Support Agent
 
-This fictional, fully linked example shows the minimum v0.2.0 documentation pack. It is not an approved product specification or a source of truth for any real system.
+This fictional, fully linked example shows the minimum AI Agent documentation pack. It is not an approved product specification or a source of truth for any real system.
 
 - [[01 - Overview/BA Foundation|BA Foundation]] — business goals, authority, rules, and risk context.
 - [[08 - Diagram Standards/Diagram Standards|Diagram Standards]] — Mermaid requirements used by this sample.

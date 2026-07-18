@@ -21,9 +21,3 @@ Ghi lại môi trường, CI/CD, observability, triển khai và rollback. Khôn
 | Observability and alerting |  |  |
 | Backup and restore |  |  |
 | Rollback trigger and procedure |  |  |
-
-## Changelog
-
-- 2026-07-17 — Added operational, ownership, and rollback templates.
-
-*Khởi tạo: 2026-07-17.*

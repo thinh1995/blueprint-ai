@@ -62,6 +62,10 @@ stateDiagram-v2
   Escalate --> [*]
 ```
 
-## Changelog
+### Data model
 
-- 2026-07-18 — Declared Mermaid as the v0.2.0 official diagram standard.
+```mermaid
+erDiagram
+  CUSTOMER ||--o{ SUPPORT_REQUEST : creates
+  SUPPORT_REQUEST ||--o{ HANDOFF : may_create
+```

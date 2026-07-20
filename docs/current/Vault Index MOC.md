@@ -32,7 +32,7 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
   - Tạo folder cho feature thực trong đây. Copy reusable pack từ `docs/templates/feature-spec-template/` rồi đổi tên và điền đủ ba lớp tài liệu.
 
 - 🧰 **`docs/templates/`**
-  - Chứa reusable templates và sample; không phải tài liệu thực của dự án. Bắt đầu từ `feature-spec-template/`, `task-evidence-template.md` hoặc `examples/ai-support-agent/`.
+  - Chứa reusable templates và sample; không phải tài liệu thực của dự án. Bắt đầu từ `feature-spec-template/`, `task-evidence-template.md`, `runtime-delegation-evidence-template.md` hoặc `examples/ai-support-agent/`.
 
 - ☁️ **Infrastructure & Deployment** và 📚 **User Manual & Help Center**
   - Starter notes nâng cao; cài bằng `--with-advanced-docs` khi cần vận hành hoặc hướng dẫn người dùng.

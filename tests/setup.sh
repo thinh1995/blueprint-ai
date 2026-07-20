@@ -259,6 +259,14 @@ assert manifest["requested_models"] == ["gemini"]
 assert manifest["managed_adapter_models"] == []
 assert "GEMINI.md" not in manifest["managed_paths"]
 PY
+(
+    cd "$user_owned_adapter_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/user-owned-adapter-update.txt"
+assert_file_contains "$user_owned_adapter_target/GEMINI.md" "user-owned adapter"
+user_owned_backup_dir="$(find "$user_owned_adapter_target" -maxdepth 1 -type d -name '.ai-template-backup.*' -print -quit)"
+[ -n "$user_owned_backup_dir" ] || fail "user-owned adapter update did not create a backup for managed files"
+[ ! -e "$user_owned_backup_dir/GEMINI.md" ] || fail "update backed up and replaced user-owned GEMINI.md"
 
 custom_manifest_target="$TEST_DIR/custom-manifest-target"
 mkdir -p "$custom_manifest_target"
@@ -343,7 +351,7 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["version"] == "0.3.1"
+assert manifest["version"] == "0.4.0"
 assert "docs/current/00 - Onboarding/5. Model Runtime Instructions.md" in manifest["profiles"]["core"]
 PY
 
@@ -476,6 +484,149 @@ assert_file_contains "$TEST_DIR/dry-run-blocked.txt" "Dry run complete:"
     bash "$TEMPLATE_DIR/setup.sh" --force
 ) > "$TEST_DIR/force-install.txt"
 assert_file_contains "$target/AGENTS.md" "AI Agent Workspace Rules"
+
+update_target="$TEST_DIR/update-target"
+mkdir -p "$update_target"
+(
+    cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --with-advanced-docs --with-legacy-agents
+) > "$TEST_DIR/update-first-install.txt"
+printf 'custom managed rules\n' > "$update_target/AGENTS.md"
+printf 'custom managed documentation prompt\n' > "$update_target/docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md"
+printf 'custom managed advanced documentation\n' > "$update_target/docs/current/03 - API & Integrations/API Reference.md"
+printf 'custom managed legacy rules\n' > "$update_target/.agents/AGENTS.md"
+python3 - "$update_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["version"] = "0.3.1"
+open(path, "w").write(json.dumps(manifest))
+PY
+(
+    cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update
+) > "$TEST_DIR/update-dry-run.txt"
+assert_file_contains "$TEST_DIR/update-dry-run.txt" "Update mode: existing managed files will be backed up then replaced."
+assert_file_contains "$TEST_DIR/update-dry-run.txt" "UPDATE (backup): AGENTS.md"
+[ -z "$(find "$update_target" -maxdepth 1 -type d -name '.ai-template-backup.*' -print -quit)" ] || fail "dry-run update created a backup"
+assert_file_contains "$update_target/AGENTS.md" "custom managed rules"
+(
+    cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/update.txt"
+assert_file_contains "$TEST_DIR/update.txt" "BACKUP:"
+assert_file_contains "$update_target/AGENTS.md" "AI Agent Workspace Rules"
+assert_file_contains "$update_target/docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "BẮT BUỘC tạo"
+assert_file_contains "$update_target/docs/current/03 - API & Integrations/API Reference.md" "# API Reference"
+assert_file_contains "$update_target/.agents/AGENTS.md" "AI Agent Workspace Rules"
+update_backup_dir="$(find "$update_target" -maxdepth 1 -type d -name '.ai-template-backup.*' -print -quit)"
+[ -n "$update_backup_dir" ] || fail "update did not create a backup directory"
+assert_file_contains "$update_backup_dir/AGENTS.md" "custom managed rules"
+assert_file_contains "$update_backup_dir/docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "custom managed documentation prompt"
+assert_file_contains "$update_backup_dir/docs/current/03 - API & Integrations/API Reference.md" "custom managed advanced documentation"
+assert_file_contains "$update_backup_dir/.agents/AGENTS.md" "custom managed legacy rules"
+assert_file_contains "$update_backup_dir/RECOVERY.md" "mix of versions"
+python3 - "$update_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["version"] == "0.4.0"
+PY
+
+update_without_manifest_target="$TEST_DIR/update-without-manifest-target"
+mkdir -p "$update_without_manifest_target"
+if (
+    cd "$update_without_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/update-without-manifest.txt" 2>&1; then
+    fail "update accepted a target without a manifest"
+fi
+assert_file_contains "$TEST_DIR/update-without-manifest.txt" "--update requires"
+[ ! -e "$update_without_manifest_target/AGENTS.md" ] || fail "update without manifest wrote files"
+
+if (
+    cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --models gemini
+) > "$TEST_DIR/update-models.txt" 2>&1; then
+    fail "update accepted an explicit model selection"
+fi
+assert_file_contains "$TEST_DIR/update-models.txt" "derives runtime adapters"
+
+core_only_update_target="$TEST_DIR/core-only-update-target"
+mkdir -p "$core_only_update_target"
+(
+    cd "$core_only_update_target"
+    bash "$TEMPLATE_DIR/setup.sh"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/core-only-update.txt"
+[ ! -e "$core_only_update_target/docs/current/03 - API & Integrations/API Reference.md" ] || fail "core-only update installed an unselected advanced profile"
+[ ! -e "$core_only_update_target/.agents/AGENTS.md" ] || fail "core-only update installed an unselected legacy profile"
+
+legacy_manifest_update_target="$TEST_DIR/legacy-manifest-update-target"
+mkdir -p "$legacy_manifest_update_target"
+(
+    cd "$legacy_manifest_update_target"
+    bash "$TEMPLATE_DIR/setup.sh"
+) > "$TEST_DIR/legacy-manifest-first-install.txt"
+python3 - "$legacy_manifest_update_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest.pop("managed_profiles", None)
+open(path, "w").write(json.dumps(manifest))
+PY
+(
+    cd "$legacy_manifest_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/legacy-manifest-bare-update.txt"
+[ ! -e "$legacy_manifest_update_target/docs/current/03 - API & Integrations/API Reference.md" ] || fail "legacy bare update installed advanced profile"
+[ ! -e "$legacy_manifest_update_target/.agents/AGENTS.md" ] || fail "legacy bare update installed legacy profile"
+(
+    cd "$legacy_manifest_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --with-advanced-docs
+) > "$TEST_DIR/legacy-manifest-advanced-update.txt"
+[ -f "$legacy_manifest_update_target/docs/current/03 - API & Integrations/API Reference.md" ] || fail "legacy explicit advanced update did not install advanced profile"
+[ ! -e "$legacy_manifest_update_target/.agents/AGENTS.md" ] || fail "legacy explicit advanced update installed legacy profile"
+(
+    cd "$legacy_manifest_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --with-legacy-agents
+) > "$TEST_DIR/legacy-manifest-legacy-update.txt"
+[ -f "$legacy_manifest_update_target/.agents/AGENTS.md" ] || fail "legacy explicit legacy update did not install legacy profile"
+python3 - "$legacy_manifest_update_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["managed_profiles"] == ["core", "--with-advanced-docs", "--with-legacy-agents"]
+PY
+
+strict_evidence_dir="$TEST_DIR/strict-evidence"
+mkdir -p "$strict_evidence_dir"
+strict_source_revision="$(git -C "$TEMPLATE_DIR" rev-list --max-parents=0 HEAD)"
+strict_checksum="$(shasum -a 256 "$TEMPLATE_DIR/V4_ACCEPTANCE_MATRIX.md" | awk '{print $1}')"
+printf '%s\n' \
+    '---' \
+    'status: completed' \
+    'task_id: strict-working-tree-fixture' \
+    'recorded_at: 2026-07-20' \
+    'recorded_by: fixture' \
+    "source_revision: $strict_source_revision" \
+    'completed_at: 2026-07-20T00:00:00Z' \
+    'reviewer: fixture' \
+    'environment: local/dev' \
+    "output_artifact_sha256: $strict_checksum" \
+    'output_artifact_path: V4_ACCEPTANCE_MATRIX.md' \
+    '---' \
+    '| AC-01 | fixture | fixture | PASS / 0 |' \
+    > "$strict_evidence_dir/working-tree-fallback.md"
+if python3 "$TEMPLATE_DIR/tests/validate-task-evidence.py" --evidence-dir "$strict_evidence_dir" --require-completed > "$TEST_DIR/strict-evidence-output.txt" 2>&1; then
+    fail "task evidence validator accepted a working-tree artifact missing from source revision"
+fi
 
 symlink_target="$TEST_DIR/symlink-target"
 mkdir -p "$symlink_target"

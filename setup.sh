@@ -7,15 +7,19 @@ FORCE=false
 DRY_RUN=false
 WITH_ADVANCED_DOCS=false
 WITH_LEGACY_AGENTS=false
+UPDATE=false
 SELECTED_MODELS=""
 MODELS_OPTION_PROVIDED=false
 FORCE_INTERACTIVE=false
 MANIFEST_BASE=""
 REQUESTED_MODELS=""
 MANAGED_ADAPTER_MODELS=""
+UPDATE_MANAGED_ADAPTER_MODELS=""
+MANAGED_PROFILES="core"
 MANIFEST_UPDATE_ALLOWED=true
 GENERATED_MANIFEST=""
 ACTIVE_TEMP_FILES=()
+BACKUP_DIR=""
 INSTALLED_COUNT=0
 SKIPPED_COUNT=0
 PLANNED_COUNT=0
@@ -25,13 +29,15 @@ BLOCKED_PATHS=()
 
 usage() {
     cat <<'EOF'
-Usage: setup.sh [--dry-run] [--force] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--models LIST]
+Usage: setup.sh [--dry-run] [--force] [--update] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--models LIST]
 
 Installs the AI agent rules and Obsidian starter vault into the current directory.
 
   --dry-run  Show which files would be installed or skipped; make no changes.
   --force    Replace existing template-owned files. Without this flag, existing
              files are preserved. Symlinks are never overwritten.
+  --update   Upgrade a project with a template-owned manifest. Existing managed
+             files are backed up, then replaced by this template version.
   --with-advanced-docs  Install API, backend, infrastructure, and user-manual
                         starter notes.
   --with-legacy-agents  Install .agents/AGENTS.md for tools that require it.
@@ -133,11 +139,20 @@ model_selected() {
     [[ ",$SELECTED_MODELS," == *",$wanted,"* ]]
 }
 
+adapter_selected_for_copy() {
+    local model="$1"
+
+    model_selected "$model" || return 1
+    [ "$UPDATE" = false ] && return 0
+    [[ ",$UPDATE_MANAGED_ADAPTER_MODELS," == *",$model,"* ]]
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dry-run) DRY_RUN=true ;;
         --force) FORCE=true ;;
         --interactive) FORCE_INTERACTIVE=true ;;
+        --update) UPDATE=true ;;
         --with-advanced-docs) WITH_ADVANCED_DOCS=true ;;
         --with-legacy-agents) WITH_LEGACY_AGENTS=true ;;
         --models)
@@ -181,7 +196,70 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-select_models_interactively
+select_update_models() {
+    local existing_manifest="$DEST_DIR/template-manifest.json"
+    local update_metadata
+    local inferred_models
+    local prior_advanced
+    local prior_legacy
+
+    if [ "$MODELS_OPTION_PROVIDED" = true ]; then
+        echo "Error: --update derives runtime adapters from the installed manifest; use a normal install to add a new runtime adapter." >&2
+        exit 1
+    fi
+    if [ ! -f "$existing_manifest" ] || [ -L "$existing_manifest" ]; then
+        echo "Error: --update requires a regular, template-owned template-manifest.json. Use a normal install for a new project." >&2
+        exit 1
+    fi
+    if ! update_metadata="$(python3 - "$existing_manifest" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text())
+if manifest.get("template") != "ai-agent-obsidian-project-template":
+    raise ValueError("manifest is not owned by ai-agent-obsidian-project-template")
+known = ["claude", "gemini", "qwen", "gemma"]
+models = manifest.get("requested_models", manifest.get("selected_models"))
+if models is None:
+    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "gemini", "QWEN.md": "qwen"}
+    models = [adapters[path] for path in manifest.get("profiles", {}).get("core", []) if path in adapters]
+if not isinstance(models, list) or any(model not in known for model in models):
+    raise ValueError("manifest has invalid runtime selection")
+profiles = manifest.get("profiles")
+if not isinstance(profiles, dict):
+    raise ValueError("manifest has invalid profiles")
+advanced = bool(profiles.get("--with-advanced-docs"))
+legacy = ".agents/AGENTS.md" in profiles.get("--with-legacy-agents", [])
+managed = manifest.get("managed_adapter_models")
+if managed is None:
+    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "gemini", "QWEN.md": "qwen"}
+    managed = [adapters[path] for path in manifest.get("managed_paths", []) if path in adapters]
+if not isinstance(managed, list) or any(model not in known for model in managed):
+    raise ValueError("manifest has invalid managed_adapter_models")
+managed_profiles = manifest.get("managed_profiles")
+if managed_profiles is None:
+    managed_profiles = ["core"]
+elif not isinstance(managed_profiles, list) or any(profile not in {"core", "--with-advanced-docs", "--with-legacy-agents"} for profile in managed_profiles):
+    raise ValueError("manifest has invalid managed_profiles")
+print("|".join([",".join(models or known), str("--with-advanced-docs" in managed_profiles).lower(), str("--with-legacy-agents" in managed_profiles).lower(), ",".join(managed), ",".join(managed_profiles)]))
+PY
+    )"; then
+        echo "Error: --update requires a valid template-owned template-manifest.json." >&2
+        exit 1
+    fi
+    IFS='|' read -r inferred_models prior_advanced prior_legacy UPDATE_MANAGED_ADAPTER_MODELS MANAGED_PROFILES <<< "$update_metadata"
+    SELECTED_MODELS="$inferred_models"
+    [ "$prior_advanced" = true ] && WITH_ADVANCED_DOCS=true
+    [ "$prior_legacy" = true ] && WITH_LEGACY_AGENTS=true
+    validate_models
+}
+
+if [ "$UPDATE" = true ]; then
+    select_update_models
+else
+    select_models_interactively
+fi
 
 cleanup_temporary_files() {
     local temporary_file
@@ -264,25 +342,31 @@ copy_file() {
         return
     fi
 
-    if [ -L "$destination_file" ] && [ "$FORCE" = true ]; then
+    if [ -L "$destination_file" ] && { [ "$FORCE" = true ] || [ "$UPDATE" = true ]; }; then
         echo "Error: Refusing to overwrite symlink: $relative_path" >&2
         return 1
     fi
 
-    if { [ -e "$destination_file" ] || [ -L "$destination_file" ]; } && [ "$FORCE" = false ]; then
+    if { [ -e "$destination_file" ] || [ -L "$destination_file" ]; } && [ "$FORCE" = false ] && [ "$UPDATE" = false ]; then
         echo "SKIP (exists): $relative_path"
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         return
     fi
 
     if [ "$DRY_RUN" = true ]; then
-        echo "INSTALL: $relative_path"
+        if [ -e "$destination_file" ] || [ -L "$destination_file" ]; then
+            echo "UPDATE (backup): $relative_path"
+        else
+            echo "INSTALL: $relative_path"
+        fi
         PLANNED_COUNT=$((PLANNED_COUNT + 1))
         return
     fi
 
     local destination_dir
     local temporary_file
+
+    backup_existing_file "$relative_path"
 
     destination_dir="$(dirname "$destination_file")"
     mkdir -p "$destination_dir"
@@ -302,6 +386,41 @@ copy_file() {
     ACTIVE_TEMP_FILES=("${ACTIVE_TEMP_FILES[@]:0:${#ACTIVE_TEMP_FILES[@]}-1}")
     echo "INSTALLED: $relative_path"
     INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+}
+
+backup_existing_file() {
+    local relative_path="$1"
+    local destination_file="$DEST_DIR/$relative_path"
+    local backup_file
+
+    [ "$UPDATE" = true ] || return 0
+    [ -e "$destination_file" ] || return 0
+    if [ -z "$BACKUP_DIR" ]; then
+        BACKUP_DIR="$(mktemp -d "$DEST_DIR/.ai-template-backup.XXXXXX")"
+        write_backup_recovery_note
+        echo "BACKUP: $BACKUP_DIR"
+    fi
+    backup_file="$BACKUP_DIR/$relative_path"
+    mkdir -p "$(dirname "$backup_file")"
+    cp -p "$destination_file" "$backup_file"
+}
+
+write_backup_recovery_note() {
+    local recovery_note="$BACKUP_DIR/RECOVERY.md"
+
+    printf '%s\n' \
+        '# Template update recovery' \
+        '' \
+        'This update replaces files one at a time. If it is interrupted or fails, the project can contain a mix of versions.' \
+        '' \
+        'The backup tree mirrors the project root. To restore one replaced file, run from the project root:' \
+        '' \
+        '```bash' \
+        'cp -p ".ai-template-backup.XXXXXX/path/to/file" "path/to/file"' \
+        '```' \
+        '' \
+        'Replace `.ai-template-backup.XXXXXX` and `path/to/file` with the reported backup directory and desired path. Files newly added by the update are not removed automatically.' \
+        > "$recovery_note"
 }
 
 collect_managed_adapter_models() {
@@ -327,7 +446,11 @@ copy_selected_manifest() {
     fi
     if [ "$DRY_RUN" = true ]; then
         if [ -e "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
-            echo "UPDATE: template-manifest.json"
+            if [ "$UPDATE" = true ]; then
+                echo "UPDATE (backup): template-manifest.json"
+            else
+                echo "UPDATE: template-manifest.json"
+            fi
         else
             echo "INSTALL: template-manifest.json"
         fi
@@ -340,7 +463,7 @@ copy_selected_manifest() {
     if ! cp -p "$SRC_DIR/template-manifest.json" "$GENERATED_MANIFEST"; then
         return 1
     fi
-    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" <<'PY'
+    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -350,6 +473,8 @@ existing_source = Path(sys.argv[2])
 destination = Path(sys.argv[3])
 requested = sys.argv[4].split(",")
 managed = [model for model in sys.argv[5].split(",") if model]
+with_advanced = sys.argv[6] == "true"
+with_legacy = sys.argv[7] == "true"
 adapter_models = {
     "CLAUDE.md": "claude",
     "GEMINI.md": "gemini",
@@ -376,6 +501,16 @@ for path in existing.get("managed_paths", []):
 data["requested_models"] = requested
 data["selected_models"] = requested  # Backward-compatible alias; prefer requested_models.
 data["managed_adapter_models"] = managed
+managed_profiles = existing.get("managed_profiles", ["core"])
+if not isinstance(managed_profiles, list) or any(profile not in {"core", "--with-advanced-docs", "--with-legacy-agents"} for profile in managed_profiles):
+    raise ValueError("existing manifest has invalid managed_profiles")
+managed_profiles = set(managed_profiles)
+managed_profiles.add("core")
+if with_advanced:
+    managed_profiles.add("--with-advanced-docs")
+if with_legacy:
+    managed_profiles.add("--with-legacy-agents")
+data["managed_profiles"] = [profile for profile in ["core", "--with-advanced-docs", "--with-legacy-agents"] if profile in managed_profiles]
 data["managed_paths"] = [
     path for path in data["managed_paths"]
     if path not in adapter_models or adapter_models[path] in managed
@@ -395,6 +530,8 @@ PY
     then
         return 1
     fi
+
+    backup_existing_file "template-manifest.json"
 
     # The validated template-owned manifest is replaced atomically; custom
     # metadata and profiles were merged into GENERATED_MANIFEST above.
@@ -458,7 +595,7 @@ check_destination_path() {
             # A final symlink is an existing file and is safely skipped in the
             # default mode. Parent symlinks could redirect a later write, and
             # --force would replace the final symlink, so both are rejected.
-            if [ "$path_index" -eq "$((${#path_parts[@]} - 1))" ] && [ "$FORCE" = false ]; then
+            if [ "$path_index" -eq "$((${#path_parts[@]} - 1))" ] && [ "$FORCE" = false ] && [ "$UPDATE" = false ]; then
                 continue
             fi
             if [ "$DRY_RUN" = true ]; then
@@ -504,13 +641,13 @@ preflight_destinations() {
     for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py"; do
         check_destination_path "$relative_path" || failed=true
     done
-    if model_selected claude; then
+    if adapter_selected_for_copy claude; then
         check_destination_path "CLAUDE.md" || failed=true
     fi
-    if model_selected gemini; then
+    if adapter_selected_for_copy gemini; then
         check_destination_path "GEMINI.md" || failed=true
     fi
-    if model_selected qwen; then
+    if adapter_selected_for_copy qwen; then
         check_destination_path "QWEN.md" || failed=true
     fi
     if [ "$WITH_LEGACY_AGENTS" = true ]; then
@@ -531,6 +668,9 @@ preflight_destinations() {
 
 echo "Setting up AI Agent Obsidian Template in: $DEST_DIR"
 echo "Selected model runtimes: $SELECTED_MODELS"
+if [ "$UPDATE" = true ]; then
+    echo "Update mode: existing managed files will be backed up then replaced."
+fi
 if [ "$DRY_RUN" = true ]; then
     echo "Dry run only — no files will be changed."
 fi
@@ -544,21 +684,18 @@ copy_file "$SRC_DIR/AGENTS.md" "AGENTS.md"
 
 # Claude Code reads CLAUDE.md at the project root. It delegates to the same
 # canonical rules so the two agent entrypoints cannot drift.
-if model_selected claude; then
+if adapter_selected_for_copy claude; then
     copy_file "$SRC_DIR/CLAUDE.md" "CLAUDE.md"
 fi
 
 # Gemini CLI and Qwen Code load their native project context files. Both
 # adapters point to AGENTS.md so workspace policy has one canonical source.
-if model_selected gemini; then
+if adapter_selected_for_copy gemini; then
     copy_file "$SRC_DIR/GEMINI.md" "GEMINI.md"
 fi
-if model_selected qwen; then
+if adapter_selected_for_copy qwen; then
     copy_file "$SRC_DIR/QWEN.md" "QWEN.md"
 fi
-
-# Record the template version and the adapters actually selected for later audits/upgrades.
-copy_selected_manifest
 
 copy_file "$SRC_DIR/tests/validate-task-evidence.py" "tools/validate-task-evidence.py"
 copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
@@ -572,6 +709,9 @@ while IFS= read -r -d '' source_file; do
     should_include_doc "$relative_path" || continue
     copy_file "$source_file" "$relative_path"
 done < <(find_template_docs)
+
+# Publish the manifest only after every selected file has been copied.
+copy_selected_manifest
 
 echo "----------------------------------------"
 if [ "$DRY_RUN" = true ]; then

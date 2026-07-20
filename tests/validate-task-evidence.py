@@ -3,6 +3,7 @@
 import datetime as dt
 import argparse
 import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -14,6 +15,7 @@ parser.add_argument("--evidence-dir", default="docs/current/00 - Onboarding/task
 parser.add_argument("--require-completed", action="store_true")
 args = parser.parse_args()
 EVIDENCE_DIR = ROOT / args.evidence_dir
+CORRECTIONS_PATH = ROOT / "docs/internal/task-evidence/evidence-corrections.json"
 if not EVIDENCE_DIR.is_dir() and args.require_completed:
     raise ValueError(f"evidence directory does not exist: {EVIDENCE_DIR}")
 
@@ -37,6 +39,9 @@ def require(data: dict[str, str], keys: list[str], path: Path) -> None:
 
 
 completed_records = 0
+corrections = json.loads(CORRECTIONS_PATH.read_text()) if CORRECTIONS_PATH.is_file() else {"schema_version": 1, "corrections": {}}
+if corrections.get("schema_version") != 1 or not isinstance(corrections.get("corrections"), dict):
+    raise ValueError("evidence corrections file is invalid")
 for path in (EVIDENCE_DIR.glob("*.md") if EVIDENCE_DIR.is_dir() else []):
     if path.name.startswith("_"):
         continue
@@ -52,24 +57,29 @@ for path in (EVIDENCE_DIR.glob("*.md") if EVIDENCE_DIR.is_dir() else []):
     if artifact_path.is_absolute() or not (ROOT / artifact_path).resolve().is_relative_to(ROOT):
         raise ValueError(f"{path}: output artifact path escapes repository root")
     artifact = ROOT / artifact_path
+    if not re.fullmatch(r"[0-9a-f]{40}", data["source_revision"]):
+        raise ValueError(f"{path}: source revision must be a full lowercase Git SHA")
+    correction_key = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
+    correction = corrections["corrections"].get(correction_key, {}) if correction_key else {}
+    revision = correction.get("source_revision", data["source_revision"])
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError(f"{path}: correction source revision must be a full lowercase Git SHA")
     try:
         subprocess.check_call(
-            ["git", "rev-parse", "--verify", f"{data['source_revision']}^{{commit}}"],
+            ["git", "rev-parse", "--verify", f"{revision}^{{commit}}"],
             cwd=ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except (OSError, subprocess.CalledProcessError):
         raise ValueError(f"{path}: source revision is unavailable: {data['source_revision']}")
-    source_spec = f"{data['source_revision']}:{artifact_path}"
+    source_spec = f"{revision}:{artifact_path}"
     try:
         artifact_bytes = subprocess.check_output(
             ["git", "show", source_spec], cwd=ROOT, stderr=subprocess.DEVNULL
         )
     except (OSError, subprocess.CalledProcessError):
-        if not artifact.is_file():
-            raise ValueError(f"{path}: output artifact is unavailable at source revision or working tree: {source_spec}")
-        artifact_bytes = artifact.read_bytes()
+        raise ValueError(f"{path}: output artifact is unavailable at source revision: {source_spec}")
     digest = hashlib.sha256(artifact_bytes).hexdigest()
     if digest != data["output_artifact_sha256"].lower():
         raise ValueError(f"{path}: output artifact checksum does not match")

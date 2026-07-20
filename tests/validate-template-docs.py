@@ -12,7 +12,7 @@ DOCS = ROOT / "docs"
 CURRENT = DOCS / "current"
 TEMPLATES = DOCS / "templates"
 SAMPLE = TEMPLATES / "examples/ai-support-agent"
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 
 
 def require(condition: bool, message: str) -> None:
@@ -73,14 +73,20 @@ def require_text(path: Path, text: str) -> str:
 
 
 def main() -> None:
-    require(json.loads((ROOT / "template-manifest.json").read_text())["version"] == VERSION, "template manifest version is not 0.3.1")
-    require_text(ROOT / "README.md", "Current release: `0.3.1`.")
-    require_text(ROOT / "CHANGELOG.md", "## 0.3.1 — 2026-07-20")
-    require_text(ROOT / "V3_1_ACCEPTANCE_MATRIX.md", "Release target: `0.3.1`")
+    require(json.loads((ROOT / "template-manifest.json").read_text())["version"] == VERSION, "template manifest version is not 0.4.0")
+    require_text(ROOT / "README.md", "Current release: `0.4.0`.")
+    require_text(ROOT / "CHANGELOG.md", "## 0.4.0 — 2026-07-20")
+    require_text(ROOT / "V4_ACCEPTANCE_MATRIX.md", "Release target: `0.4.0`")
     require_text(ROOT / "GEMINI.md", "AGENTS.md")
     require_text(ROOT / "QWEN.md", "AGENTS.md")
     require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "A file in the repository is **not** a system prompt.")
+    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "https://geminicli.com/docs/core/subagents/")
+    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/")
     require_text(TEMPLATES / "agent-system-prompt-template.md", "Prompting alone cannot enforce permissions")
+    require_text(TEMPLATES / "documentation-subagent-contract.md", "## Coordinator completion gate")
+    require_text(TEMPLATES / "runtime-delegation-evidence-template.md", "# Runtime Delegation Evidence")
+    require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "BẮT BUỘC tạo")
+    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "Documentation sub-agent contract (v0.4.0)")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
 
     for path in [*CURRENT.rglob("*.md"), *TEMPLATES.rglob("*.md")]:

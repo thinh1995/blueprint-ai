@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-07-20
+
+- Required documentation initialization and refresh to create applicable specialized sub-agents on hosts that expose delegation.
+- Added role boundaries, evidence handoffs, coordinator ownership, conflict resolution and an explicit no-delegation sequential fallback.
+- Added runtime capability guidance and structural validation for the orchestration contract.
+- Added `setup.sh --update` for safe Bash upgrades: it requires a template-owned manifest, backs up replaced managed files and supports `--dry-run --update`.
+- Hardened `--update` to preserve user-owned adapters, retain previously selected optional profiles, and write per-file recovery guidance in each backup.
+- Made completed task evidence require an artifact present at its recorded Git revision; added runtime-delegation evidence schema validation and pinned the CI Node runtime.
+
 ## 0.3.1 — 2026-07-20
 
 - Added native `GEMINI.md` and `QWEN.md` adapters that delegate to canonical `AGENTS.md` rules.

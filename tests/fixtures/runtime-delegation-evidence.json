@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fixture": true,
+  "runtime": "fixture-host",
+  "runtime_version": "0.0.0",
+  "host": "CI schema fixture",
+  "captured_at": "2026-07-20T00:00:00Z",
+  "coordinator": "fixture coordinator",
+  "mode": "delegated",
+  "capability_check": "fixture: delegation capability available",
+  "delegation_evidence": "fixture: sub-agent handoff recorded",
+  "roles": [
+    "source-discovery",
+    "architecture-api",
+    "product-ba",
+    "qa-traceability"
+  ]
+}

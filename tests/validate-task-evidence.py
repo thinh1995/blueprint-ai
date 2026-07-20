@@ -4,6 +4,7 @@ import datetime as dt
 import argparse
 import hashlib
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -47,10 +48,29 @@ for path in (EVIDENCE_DIR.glob("*.md") if EVIDENCE_DIR.is_dir() else []):
     require(data, ["task_id", "recorded_at", "recorded_by", "source_revision", "completed_at", "reviewer", "environment", "output_artifact_sha256", "output_artifact_path"], path)
     if not re.search(r"\| AC-[^|]+\|\s*[^|\s].*\|\s*[^|\s].*\|\s*[^|\s].*\|", text):
         raise ValueError(f"{path}: completed task needs a non-empty AC validation row")
-    artifact = ROOT / data["output_artifact_path"]
-    if not artifact.is_file():
-        raise ValueError(f"{path}: output artifact does not exist: {artifact}")
-    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    artifact_path = Path(data["output_artifact_path"])
+    if artifact_path.is_absolute() or not (ROOT / artifact_path).resolve().is_relative_to(ROOT):
+        raise ValueError(f"{path}: output artifact path escapes repository root")
+    artifact = ROOT / artifact_path
+    try:
+        subprocess.check_call(
+            ["git", "rev-parse", "--verify", f"{data['source_revision']}^{{commit}}"],
+            cwd=ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        raise ValueError(f"{path}: source revision is unavailable: {data['source_revision']}")
+    source_spec = f"{data['source_revision']}:{artifact_path}"
+    try:
+        artifact_bytes = subprocess.check_output(
+            ["git", "show", source_spec], cwd=ROOT, stderr=subprocess.DEVNULL
+        )
+    except (OSError, subprocess.CalledProcessError):
+        if not artifact.is_file():
+            raise ValueError(f"{path}: output artifact is unavailable at source revision or working tree: {source_spec}")
+        artifact_bytes = artifact.read_bytes()
+    digest = hashlib.sha256(artifact_bytes).hexdigest()
     if digest != data["output_artifact_sha256"].lower():
         raise ValueError(f"{path}: output artifact checksum does not match")
 

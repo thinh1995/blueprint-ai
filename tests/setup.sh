@@ -20,7 +20,7 @@ assert_file_contains() {
     local file="$1"
     local expected="$2"
 
-    grep -Fq "$expected" "$file" || fail "Expected '$expected' in $file"
+    grep -Fq -- "$expected" "$file" || fail "Expected '$expected' in $file"
 }
 
 assert_file_matches() {
@@ -50,7 +50,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((5 + core_doc_count))
+expected_file_count=$((7 + core_doc_count))
 
 (
     cd "$target"
@@ -86,10 +86,279 @@ if grep -R -E '^(\*Changelog:|\*Khởi tạo:)' "$target/docs/current" "$target/
 fi
 [ -f "$target/template-manifest.json" ] || fail "default install did not copy template manifest"
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
+[ -f "$target/GEMINI.md" ] || fail "default install did not copy GEMINI.md"
+[ -f "$target/QWEN.md" ] || fail "default install did not copy QWEN.md"
+assert_file_contains "$target/GEMINI.md" "AGENTS.md"
+assert_file_contains "$target/GEMINI.md" "@AGENTS.md"
+assert_file_contains "$target/QWEN.md" "AGENTS.md"
 [ -f "$target/tools/validate-task-evidence.py" ] || fail "default install did not copy task-evidence validator"
 [ -f "$target/tools/validate-docs.py" ] || fail "default install did not copy downstream docs validator"
 python3 "$target/tools/validate-docs.py" || fail "downstream docs validator failed after default install"
 python3 "$target/tools/validate-task-evidence.py" || fail "downstream task-evidence validator failed without task records"
+
+selected_models_target="$TEST_DIR/selected-models-target"
+mkdir -p "$selected_models_target"
+(
+    cd "$selected_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini,qwen
+) > "$TEST_DIR/selected-models-install.txt"
+assert_file_contains "$TEST_DIR/selected-models-install.txt" "Selected model runtimes: gemini,qwen"
+[ -f "$selected_models_target/AGENTS.md" ] || fail "selected-model install did not copy canonical AGENTS.md"
+[ -f "$selected_models_target/GEMINI.md" ] || fail "selected-model install did not copy GEMINI.md"
+[ -f "$selected_models_target/QWEN.md" ] || fail "selected-model install did not copy QWEN.md"
+[ ! -e "$selected_models_target/CLAUDE.md" ] || fail "selected-model install copied unselected CLAUDE.md"
+python3 - "$selected_models_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["selected_models"] == ["gemini", "qwen"]
+assert "CLAUDE.md" not in manifest["managed_paths"]
+assert "CLAUDE.md" not in manifest["profiles"]["core"]
+assert "GEMINI.md" in manifest["profiles"]["core"]
+assert "QWEN.md" in manifest["profiles"]["core"]
+PY
+
+gemma_models_target="$TEST_DIR/gemma-models-target"
+mkdir -p "$gemma_models_target"
+(
+    cd "$gemma_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemma
+) > "$TEST_DIR/gemma-models-install.txt"
+assert_file_contains "$TEST_DIR/gemma-models-install.txt" "Gemma/custom API selected"
+[ ! -e "$gemma_models_target/CLAUDE.md" ] || fail "Gemma-only install copied CLAUDE.md"
+[ ! -e "$gemma_models_target/GEMINI.md" ] || fail "Gemma-only install copied GEMINI.md"
+[ ! -e "$gemma_models_target/QWEN.md" ] || fail "Gemma-only install copied QWEN.md"
+python3 - "$gemma_models_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["selected_models"] == ["gemma"]
+assert all(adapter not in manifest["profiles"]["core"] for adapter in ["CLAUDE.md", "GEMINI.md", "QWEN.md"])
+PY
+
+invalid_models_target="$TEST_DIR/invalid-models-target"
+mkdir -p "$invalid_models_target"
+if (
+    cd "$invalid_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini,invalid
+) > "$TEST_DIR/invalid-models.txt" 2>&1; then
+    fail "setup accepted an invalid model selection"
+fi
+assert_file_contains "$TEST_DIR/invalid-models.txt" "Unknown model 'invalid'"
+[ ! -e "$invalid_models_target/AGENTS.md" ] || fail "invalid model selection wrote files"
+
+for empty_option in "--models=" "--models"; do
+    empty_models_target="$TEST_DIR/empty-models-target-${empty_option//=/}"
+    mkdir -p "$empty_models_target"
+    if [ "$empty_option" = "--models" ]; then
+        command=(bash "$TEMPLATE_DIR/setup.sh" "$empty_option" "")
+    else
+        command=(bash "$TEMPLATE_DIR/setup.sh" "$empty_option")
+    fi
+    if (
+        cd "$empty_models_target"
+        "${command[@]}"
+    ) > "$TEST_DIR/empty-models.txt" 2>&1; then
+        fail "setup accepted an empty model selection: $empty_option"
+    fi
+    assert_file_contains "$TEST_DIR/empty-models.txt" "--models requires"
+    [ ! -e "$empty_models_target/AGENTS.md" ] || fail "empty model selection wrote files"
+done
+
+interactive_invalid_target="$TEST_DIR/interactive-invalid-target"
+mkdir -p "$interactive_invalid_target"
+if (
+    cd "$interactive_invalid_target"
+    printf '1,\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive
+) > "$TEST_DIR/interactive-invalid.txt" 2>&1; then
+    fail "interactive setup accepted a trailing delimiter"
+fi
+assert_file_contains "$TEST_DIR/interactive-invalid.txt" "without empty values"
+[ ! -e "$interactive_invalid_target/AGENTS.md" ] || fail "invalid interactive selection wrote files"
+
+interactive_duplicate_target="$TEST_DIR/interactive-duplicate-target"
+mkdir -p "$interactive_duplicate_target"
+if (
+    cd "$interactive_duplicate_target"
+    printf '1,1\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive
+) > "$TEST_DIR/interactive-duplicate.txt" 2>&1; then
+    fail "interactive setup accepted a duplicate selection"
+fi
+assert_file_contains "$TEST_DIR/interactive-duplicate.txt" "selected more than once"
+
+interactive_success_target="$TEST_DIR/interactive-success-target"
+mkdir -p "$interactive_success_target"
+(
+    cd "$interactive_success_target"
+    printf '2,4\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive
+) > "$TEST_DIR/interactive-success.txt"
+[ -f "$interactive_success_target/GEMINI.md" ] || fail "interactive setup did not install GEMINI.md"
+[ ! -e "$interactive_success_target/CLAUDE.md" ] || fail "interactive setup installed unselected CLAUDE.md"
+[ ! -e "$interactive_success_target/QWEN.md" ] || fail "interactive setup installed unselected QWEN.md"
+python3 - "$interactive_success_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["requested_models"] == ["gemini", "gemma"]
+assert manifest["managed_adapter_models"] == ["gemini"]
+PY
+
+repeated_models_target="$TEST_DIR/repeated-models-target"
+mkdir -p "$repeated_models_target"
+if (
+    cd "$repeated_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini --models qwen
+) > "$TEST_DIR/repeated-models.txt" 2>&1; then
+    fail "setup accepted --models more than once"
+fi
+assert_file_contains "$TEST_DIR/repeated-models.txt" "can only be provided once"
+
+incremental_models_target="$TEST_DIR/incremental-models-target"
+mkdir -p "$incremental_models_target"
+(
+    cd "$incremental_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini,qwen
+    bash "$TEMPLATE_DIR/setup.sh" --models claude
+) > "$TEST_DIR/incremental-models.txt"
+[ -f "$incremental_models_target/CLAUDE.md" ] || fail "incremental install did not add CLAUDE.md"
+python3 - "$incremental_models_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["selected_models"] == ["claude", "gemini", "qwen"]
+assert manifest["managed_adapter_models"] == ["claude", "gemini", "qwen"]
+assert all(adapter in manifest["profiles"]["core"] for adapter in ["CLAUDE.md", "GEMINI.md", "QWEN.md"])
+PY
+
+incremental_dry_run_target="$TEST_DIR/incremental-dry-run-target"
+mkdir -p "$incremental_dry_run_target"
+(
+    cd "$incremental_dry_run_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --models claude
+) > "$TEST_DIR/incremental-dry-run.txt"
+assert_file_contains "$TEST_DIR/incremental-dry-run.txt" "UPDATE: template-manifest.json"
+
+user_owned_adapter_target="$TEST_DIR/user-owned-adapter-target"
+mkdir -p "$user_owned_adapter_target"
+printf 'user-owned adapter\n' > "$user_owned_adapter_target/GEMINI.md"
+(
+    cd "$user_owned_adapter_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/user-owned-adapter.txt"
+python3 - "$user_owned_adapter_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["requested_models"] == ["gemini"]
+assert manifest["managed_adapter_models"] == []
+assert "GEMINI.md" not in manifest["managed_paths"]
+PY
+
+custom_manifest_target="$TEST_DIR/custom-manifest-target"
+mkdir -p "$custom_manifest_target"
+(
+    cd "$custom_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/custom-manifest-first.txt"
+python3 - "$custom_manifest_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["custom_field"] = "preserve-me"
+manifest["profiles"]["custom"] = ["custom/path"]
+open(path, "w").write(json.dumps(manifest))
+PY
+(
+    cd "$custom_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude
+) > "$TEST_DIR/custom-manifest-second.txt"
+python3 - "$custom_manifest_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["custom_field"] == "preserve-me"
+assert manifest["profiles"]["custom"] == ["custom/path"]
+PY
+
+malformed_manifest_target="$TEST_DIR/malformed-manifest-target"
+mkdir -p "$malformed_manifest_target"
+printf '{"template":"ai-agent-obsidian-project-template"}\n' > "$malformed_manifest_target/template-manifest.json"
+if (
+    cd "$malformed_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/malformed-manifest.txt" 2>&1; then
+    fail "setup accepted a malformed template-owned manifest"
+fi
+assert_file_contains "$TEST_DIR/malformed-manifest.txt" "invalid managed_paths"
+[ ! -e "$malformed_manifest_target/AGENTS.md" ] || fail "malformed manifest allowed partial install"
+if (
+    cd "$malformed_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --models gemini
+) > "$TEST_DIR/malformed-manifest-dry-run.txt" 2>&1; then
+    fail "dry-run accepted a malformed template-owned manifest"
+fi
+
+unmanaged_manifest_target="$TEST_DIR/unmanaged-manifest-target"
+mkdir -p "$unmanaged_manifest_target"
+printf '{"template":"user-owned","custom":true}\n' > "$unmanaged_manifest_target/template-manifest.json"
+(
+    cd "$unmanaged_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/unmanaged-manifest.txt"
+assert_file_contains "$TEST_DIR/unmanaged-manifest.txt" "SKIP (unmanaged manifest)"
+assert_file_contains "$unmanaged_manifest_target/template-manifest.json" '"template":"user-owned"'
+[ -f "$unmanaged_manifest_target/GEMINI.md" ] || fail "unmanaged manifest blocked selected adapter install"
+
+upgrade_manifest_target="$TEST_DIR/upgrade-manifest-target"
+mkdir -p "$upgrade_manifest_target"
+(
+    cd "$upgrade_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/upgrade-manifest-first.txt"
+python3 - "$upgrade_manifest_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["version"] = "0.3.0"
+manifest["profiles"]["core"] = [path for path in manifest["profiles"]["core"] if "Model Runtime Instructions" not in path]
+open(path, "w").write(json.dumps(manifest))
+PY
+(
+    cd "$upgrade_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude
+) > "$TEST_DIR/upgrade-manifest-second.txt"
+python3 - "$upgrade_manifest_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+assert manifest["version"] == "0.3.1"
+assert "docs/current/00 - Onboarding/5. Model Runtime Instructions.md" in manifest["profiles"]["core"]
+PY
+
+selected_adapter_directory_target="$TEST_DIR/selected-adapter-directory-target"
+mkdir -p "$selected_adapter_directory_target/GEMINI.md"
+printf 'preserve this file\n' > "$selected_adapter_directory_target/AGENTS.md"
+if (
+    cd "$selected_adapter_directory_target"
+    bash "$TEMPLATE_DIR/setup.sh" --force --models gemini
+) > "$TEST_DIR/selected-adapter-directory.txt" 2>&1; then
+    fail "force install accepted a directory where a selected adapter file is required"
+fi
+assert_file_contains "$TEST_DIR/selected-adapter-directory.txt" "Expected file but found directory"
+assert_file_contains "$selected_adapter_directory_target/AGENTS.md" "preserve this file"
+[ -d "$selected_adapter_directory_target/GEMINI.md" ] || fail "selected adapter directory was changed"
 
 link_boundary_target="$TEST_DIR/link-boundary-target"
 mkdir -p "$link_boundary_target/docs/current" "$link_boundary_target/tools"
@@ -118,7 +387,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -154,7 +423,7 @@ PY
 metadata_template="$TEST_DIR/template-with-metadata"
 metadata_target="$TEST_DIR/metadata-target"
 mkdir -p "$metadata_template/tests" "$metadata_target"
-for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md template-manifest.json; do
+for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$metadata_template/$template_file"
 done
 cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/validate-task-evidence.py"

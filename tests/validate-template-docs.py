@@ -12,7 +12,7 @@ DOCS = ROOT / "docs"
 CURRENT = DOCS / "current"
 TEMPLATES = DOCS / "templates"
 SAMPLE = TEMPLATES / "examples/ai-support-agent"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 def require(condition: bool, message: str) -> None:
@@ -73,11 +73,14 @@ def require_text(path: Path, text: str) -> str:
 
 
 def main() -> None:
-    require(json.loads((ROOT / "template-manifest.json").read_text())["version"] == VERSION, "template manifest version is not 0.3.0")
-    require_text(ROOT / "README.md", "Current release: `0.3.0`.")
-    require_text(ROOT / "CHANGELOG.md", "## 0.3.0 — 2026-07-18")
-    require_text(ROOT / "V3_ACCEPTANCE_MATRIX.md", "Release target: `0.3.0`")
-    require_text(ROOT / "V3_ACCEPTANCE_MATRIX.md", "Reviewer/sign-off: `thinh1995` — 2026-07-18.")
+    require(json.loads((ROOT / "template-manifest.json").read_text())["version"] == VERSION, "template manifest version is not 0.3.1")
+    require_text(ROOT / "README.md", "Current release: `0.3.1`.")
+    require_text(ROOT / "CHANGELOG.md", "## 0.3.1 — 2026-07-20")
+    require_text(ROOT / "V3_1_ACCEPTANCE_MATRIX.md", "Release target: `0.3.1`")
+    require_text(ROOT / "GEMINI.md", "AGENTS.md")
+    require_text(ROOT / "QWEN.md", "AGENTS.md")
+    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "A file in the repository is **not** a system prompt.")
+    require_text(TEMPLATES / "agent-system-prompt-template.md", "Prompting alone cannot enforce permissions")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
 
     for path in [*CURRENT.rglob("*.md"), *TEMPLATES.rglob("*.md")]:

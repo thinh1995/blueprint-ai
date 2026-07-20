@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — 2026-07-20
+
+- Added native `GEMINI.md` and `QWEN.md` adapters that delegate to canonical `AGENTS.md` rules.
+- Added runtime onboarding for context verification and a system/developer-prompt template for raw/custom model harnesses, including Gemma deployments.
+- Clarified that prompting improves instruction priority but cannot replace runtime discovery, tool permissions, approvals, or model-specific compliance tests.
+
 ## 0.3.0 — 2026-07-18
 
 - Separated downstream project notes, reusable templates, and source-only repository records.

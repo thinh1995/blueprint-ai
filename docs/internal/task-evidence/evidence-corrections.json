@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "corrections": {
+    "docs/internal/task-evidence/2026-07-18-version-0.1.md": {
+      "source_revision": "a08486c3ed1716d46ec05fdba320f758124e842b",
+      "reason": "Original completed record predates the committed artifact; correction preserves original provenance while identifying the immutable artifact revision."
+    },
+    "docs/internal/task-evidence/2026-07-18-v0.3.0-doc-separation.md": {
+      "source_revision": "a08486c3ed1716d46ec05fdba320f758124e842b",
+      "reason": "Original completed record predates the committed artifact; correction preserves original provenance while identifying the immutable artifact revision."
+    }
+  }
+}

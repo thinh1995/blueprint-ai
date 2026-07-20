@@ -23,6 +23,16 @@ Before writing code, scan `docs/current` for related technical specifications, a
 
 After a behavior-changing task, locate the corresponding Obsidian note and make a targeted update (do not replace its whole contents). Add a dated changelog only when the downstream project has adopted that convention; never inherit this template repository's changelog entries. Run relevant documentation and runtime validation, reporting any unverified behavior.
 
+# RULE: DOCUMENTATION INITIALIZATION ORCHESTRATION
+
+When initializing or refreshing whole-project documentation, first inspect the active host for an available sub-agent/delegation capability. If delegation is available, creating specialized sub-agents is mandatory before any documentation write. Do not substitute a sequential workflow merely because delegation is inconvenient.
+
+- Create only roles that match the project: source discovery; architecture/API; product/BA; and QA/traceability. Each selected role receives a bounded question and an explicit file/area ownership boundary.
+- Default sub-agents to read-only discovery. A sub-agent may edit only files explicitly assigned to it; the coordinating agent owns cross-cutting notes, conflict resolution, and the final documentation write.
+- Every sub-agent handoff must include source paths or command output plus separate Fact / Assumption / Unknown entries. The coordinating agent must reconcile conflicting findings and report any unresolved conflict.
+- If the host has no delegation capability, record that capability check and execute the same role phases sequentially. Never claim sub-agents were created in that fallback.
+- A prompt or repository file is not proof of delegation. Record the host/runtime version, capability check, selected roles, and delegation evidence in the task evidence or final report.
+
 # RULE: ENVIRONMENT & DESTRUCTIVE-ACTION SAFETY
 
 - Default to local/dev. Before running a command against staging, production, shared infrastructure, or an external service, confirm the target environment and that the task authorizes the action.

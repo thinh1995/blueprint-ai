@@ -8,7 +8,7 @@ require_text() {
     local file="$1"
     local text="$2"
 
-    grep -Fq "$text" "$ROOT_DIR/$file" || {
+    grep -Fq -- "$text" "$ROOT_DIR/$file" || {
         echo "Missing '$text' in $file" >&2
         exit 1
     }
@@ -53,6 +53,12 @@ require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update
 require_text "V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "tools/validate-docs.py"
 require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
+require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+require_text ".github/workflows/ai-template-validation.yml" "node-version: 22.14.0"
+require_text "README.md" "--dry-run --update"
+require_text "docs/current/00 - Onboarding/1. Setup Guide.md" "RECOVERY.md"
 python3 "$ROOT_DIR/tests/validate-template-docs.py"
+python3 "$ROOT_DIR/tests/validate-orchestration-contract.py"
+python3 "$ROOT_DIR/tests/validate-runtime-delegation-fixture.py"
 
 echo "PASS: documentation guardrail validation"

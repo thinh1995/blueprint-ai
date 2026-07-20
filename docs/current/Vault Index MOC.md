@@ -10,7 +10,7 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
 ## 📁 Kiến trúc Thư mục
 
 - 🚀 **[[00 - Onboarding/1. Setup Guide|00 - Onboarding]]**
-  - Chứa hướng dẫn cài đặt môi trường, [[00 - Onboarding/2. Task Evidence|Task Evidence]], [[00 - Onboarding/4. Whole-Project Documentation Update Prompt|Whole-Project Documentation Update Prompt]] và **[[00 - Onboarding/3. AI Agent Workflow|AI Agent Workflow]]** bắt buộc trước task kỹ thuật.
+  - Chứa hướng dẫn cài đặt môi trường, [[00 - Onboarding/2. Task Evidence|Task Evidence]], [[00 - Onboarding/4. Whole-Project Documentation Update Prompt|Whole-Project Documentation Update Prompt]], [[00 - Onboarding/5. Model Runtime Instructions|Model Runtime Instructions]] và **[[00 - Onboarding/3. AI Agent Workflow|AI Agent Workflow]]** bắt buộc trước task kỹ thuật.
 
 - 📖 **[[01 - Overview/Overview|01 - Overview]]**
   - Cung cấp cái nhìn tổng quan về hệ thống, BA Foundation, sơ đồ Use Case và các liên kết quan trọng.

@@ -52,6 +52,7 @@ require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "stateDi
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "docs/templates"
 require_text "V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "tools/validate-docs.py"
+require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
 python3 "$ROOT_DIR/tests/validate-template-docs.py"
 
 echo "PASS: documentation guardrail validation"

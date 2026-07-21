@@ -2,7 +2,7 @@
 
 Release target: `0.4.2`
 Scope: add runtime-neutral agent orchestration guidance without defining a fixed catalog of agents or changing the mandatory whole-project documentation workflow. Scope approval: User approval — 2026-07-21.
-Reviewer/sign-off: Local validation pending final review; release evidence remains draft until an immutable release artifact is committed.
+Reviewer/sign-off: User authorized release completion in Codex conversation — 2026-07-21. Local validation passed; completed evidence is recorded in a follow-up immutable commit.
 
 | Area | Acceptance criterion | Validation |
 |---|---|---|

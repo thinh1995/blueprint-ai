@@ -6,7 +6,7 @@ runtime_version: 2.1.214
 host: macOS, workspace /Users/lucifer/Documents/Projects/Prime/ai-project-template
 captured_at: 2026-07-20T15:09:23+07:00
 coordinator: /root
-mode: sequential-fallback
+mode: blocked-before-run
 capability_check: "`claude --help` advertised `--agents`, `--agent`, `--bg` and `claude agents`; `claude agents --help` reported 'Manage background agents'."
 delegation_evidence: "Attempted real refresh session aae41220-c6b4-4cf3-b4e5-e61862e9b17c with `claude -p --verbose --output-format stream-json --forward-subagent-text`; initialization reported Claude Code 2.1.214 and Task tool, then retries ended with `API Error: Unable to connect to API (ConnectionRefused)`. No Task handoff was created."
 ---

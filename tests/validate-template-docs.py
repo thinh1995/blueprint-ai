@@ -2,17 +2,20 @@
 """Structural and semantic validation for this template repository."""
 
 import json
-import posixpath
 import re
 import sys
 from pathlib import Path
+
+# Validation is read-only; avoid creating __pycache__ artifacts in the template.
+sys.dont_write_bytecode = True
+
+from docs_validation import read, validate_links, validate_mermaid
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 CURRENT = DOCS / "current"
 TEMPLATES = DOCS / "templates"
 SAMPLE = TEMPLATES / "examples/ai-support-agent"
-VERSION = "0.4.0"
 
 
 def require(condition: bool, message: str) -> None:
@@ -20,50 +23,8 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
-
-
 def markdown_files() -> list[Path]:
     return [path for path in DOCS.rglob("*.md") if "internal" not in path.relative_to(DOCS).parts]
-
-
-def validate_links(files: list[Path]) -> None:
-    relative_paths = {path.relative_to(DOCS).with_suffix("").as_posix() for path in files}
-    stems: dict[str, list[Path]] = {}
-    for path in files:
-        stems.setdefault(path.stem, []).append(path)
-
-    wiki = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
-    markdown = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
-    for path in files:
-        content = read(path)
-        for match in wiki.finditer(content):
-            target = match.group(1).strip().replace("\\", "/")
-            relative = posixpath.normpath((path.parent.relative_to(DOCS) / target).as_posix())
-            current = f"current/{target}"
-            if target in relative_paths or relative in relative_paths or current in relative_paths:
-                continue
-            require(len(stems.get(target, [])) == 1, f"{path.relative_to(ROOT)}: unresolved or ambiguous link [[{target}]]")
-        for match in markdown.finditer(content):
-            target = match.group(1).split("#", 1)[0]
-            require(not target.lower().startswith("file:"), f"{path.relative_to(ROOT)}: unsupported Markdown URI scheme file:")
-            if not target or "://" in target or target.startswith("mailto:"):
-                continue
-            candidate = (path.parent / target).resolve()
-            require(candidate.is_relative_to(ROOT), f"{path.relative_to(ROOT)}: Markdown link target escapes project root {target}")
-            require(candidate.is_file(), f"{path.relative_to(ROOT)}: missing Markdown link target {target}")
-
-
-def validate_mermaid(files: list[Path]) -> None:
-    block = re.compile(r"(?ms)^```mermaid[ \t]*\n(.*?)^```[ \t]*$")
-    for path in files:
-        content = read(path)
-        blocks = block.findall(content)
-        require(content.count("```mermaid") == len(blocks), f"{path.relative_to(ROOT)}: malformed or unclosed Mermaid fence")
-        for diagram in blocks:
-            require(bool(diagram.strip()), f"{path.relative_to(ROOT)}: empty Mermaid diagram")
-            require(bool(re.match(r"[A-Za-z][A-Za-z0-9_-]*", diagram.lstrip())), f"{path.relative_to(ROOT)}: Mermaid diagram has no type")
 
 
 def require_text(path: Path, text: str) -> str:
@@ -73,10 +34,11 @@ def require_text(path: Path, text: str) -> str:
 
 
 def main() -> None:
-    require(json.loads((ROOT / "template-manifest.json").read_text())["version"] == VERSION, "template manifest version is not 0.4.0")
-    require_text(ROOT / "README.md", "Current release: `0.4.0`.")
-    require_text(ROOT / "CHANGELOG.md", "## 0.4.0 — 2026-07-20")
-    require_text(ROOT / "V4_ACCEPTANCE_MATRIX.md", "Release target: `0.4.0`")
+    version = json.loads((ROOT / "template-manifest.json").read_text())["version"]
+    matrix = ROOT / f"V{version.split('.', 1)[1].replace('.', '_')}_ACCEPTANCE_MATRIX.md"
+    require_text(ROOT / "README.md", f"Current release: `{version}`.")
+    require_text(ROOT / "CHANGELOG.md", f"## {version} — 2026-07-21")
+    require_text(matrix, f"Release target: `{version}`")
     require_text(ROOT / "GEMINI.md", "AGENTS.md")
     require_text(ROOT / "QWEN.md", "AGENTS.md")
     require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "A file in the repository is **not** a system prompt.")
@@ -86,7 +48,7 @@ def main() -> None:
     require_text(TEMPLATES / "documentation-subagent-contract.md", "## Coordinator completion gate")
     require_text(TEMPLATES / "runtime-delegation-evidence-template.md", "# Runtime Delegation Evidence")
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "BẮT BUỘC tạo")
-    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "Documentation sub-agent contract (v0.4.0)")
+    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "Documentation sub-agent contract")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
 
     for path in [*CURRENT.rglob("*.md"), *TEMPLATES.rglob("*.md")]:
@@ -102,8 +64,8 @@ def main() -> None:
     require(re.search(r"^\| BG-01:.*\| UC-01 / BR-02 \| AC-03 \|", product, re.M), "sample Product Spec: missing safety-boundary traceability row")
 
     files = markdown_files()
-    validate_links(files)
-    validate_mermaid(files)
+    validate_links(ROOT, DOCS, files)
+    validate_mermaid(ROOT, files)
     print("PASS: template documentation, links, Mermaid structure, and traceability")
 
 

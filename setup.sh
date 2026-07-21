@@ -17,6 +17,7 @@ MANAGED_ADAPTER_MODELS=""
 UPDATE_MANAGED_ADAPTER_MODELS=""
 MANAGED_PROFILES="core"
 MANIFEST_UPDATE_ALLOWED=true
+VALIDATOR_BUNDLE_MANAGED=true
 GENERATED_MANIFEST=""
 ACTIVE_TEMP_FILES=()
 BACKUP_DIR=""
@@ -176,7 +177,6 @@ done
 
 # Set the source directory (where this script is located)
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-source "$SRC_DIR/template-paths.sh"
 
 # Target directory is the current directory where the script is executed
 DEST_DIR="$(pwd -P)"
@@ -193,6 +193,13 @@ fi
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: Python 3 is required to validate and generate the template manifest." >&2
+    exit 1
+fi
+
+# template-paths.sh reads profile membership from the manifest, so load it
+# only after the Python prerequisite has been checked.
+if ! source "$SRC_DIR/template-paths.sh"; then
+    echo "Error: Cannot safely load template profile paths." >&2
     exit 1
 fi
 
@@ -219,6 +226,10 @@ from pathlib import Path
 manifest = json.loads(Path(sys.argv[1]).read_text())
 if manifest.get("template") != "ai-agent-obsidian-project-template":
     raise ValueError("manifest is not owned by ai-agent-obsidian-project-template")
+def safe_path(path):
+    return isinstance(path, str) and path and not path.startswith("/") and "\n" not in path and "\r" not in path and all(part not in {"", ".", ".."} for part in path.split("/"))
+if not isinstance(manifest.get("managed_paths"), list) or not all(safe_path(path) for path in manifest["managed_paths"]):
+    raise ValueError("manifest has unsafe managed_paths")
 known = ["claude", "gemini", "qwen", "gemma"]
 models = manifest.get("requested_models", manifest.get("selected_models"))
 if models is None:
@@ -229,6 +240,8 @@ if not isinstance(models, list) or any(model not in known for model in models):
 profiles = manifest.get("profiles")
 if not isinstance(profiles, dict):
     raise ValueError("manifest has invalid profiles")
+if any(not isinstance(paths, list) or not all(safe_path(path) for path in paths) for paths in profiles.values()):
+    raise ValueError("manifest has unsafe profile paths")
 advanced = bool(profiles.get("--with-advanced-docs"))
 legacy = ".agents/AGENTS.md" in profiles.get("--with-legacy-agents", [])
 managed = manifest.get("managed_adapter_models")
@@ -304,6 +317,12 @@ if not isinstance(manifest.get("managed_paths"), list) or not all(isinstance(pat
 profiles = manifest.get("profiles")
 if not isinstance(profiles, dict) or not isinstance(profiles.get("core"), list) or not all(isinstance(path, str) for path in profiles["core"]):
     raise ValueError("existing manifest has invalid profiles.core")
+def safe_path(path):
+    return isinstance(path, str) and path and not path.startswith("/") and "\n" not in path and "\r" not in path and all(part not in {"", ".", ".."} for part in path.split("/"))
+if not all(safe_path(path) for path in manifest["managed_paths"]):
+    raise ValueError("existing manifest has unsafe managed_paths")
+if any(not isinstance(paths, list) or not all(safe_path(path) for path in paths) for paths in profiles.values()):
+    raise ValueError("existing manifest has unsafe profile paths")
 
 requested = sys.argv[2].split(",")
 known = ["claude", "gemini", "qwen", "gemma"]
@@ -463,7 +482,7 @@ copy_selected_manifest() {
     if ! cp -p "$SRC_DIR/template-manifest.json" "$GENERATED_MANIFEST"; then
         return 1
     fi
-    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" <<'PY'
+    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" "$VALIDATOR_BUNDLE_MANAGED" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -475,6 +494,7 @@ requested = sys.argv[4].split(",")
 managed = [model for model in sys.argv[5].split(",") if model]
 with_advanced = sys.argv[6] == "true"
 with_legacy = sys.argv[7] == "true"
+validator_bundle_managed = sys.argv[8] == "true"
 adapter_models = {
     "CLAUDE.md": "claude",
     "GEMINI.md": "gemini",
@@ -490,7 +510,7 @@ for key, value in existing.items():
 
 existing_profiles = existing.get("profiles", {})
 for name, profile in existing_profiles.items():
-    if name != "core":
+    if name not in {"core", "--with-advanced-docs", "--with-legacy-agents"}:
         data["profiles"][name] = profile
 for path in existing_profiles.get("core", []):
     if path not in data["profiles"]["core"] and path not in adapter_models:
@@ -525,6 +545,10 @@ for adapter, model in adapter_models.items():
             data["managed_paths"].append(adapter)
         if adapter not in data["profiles"]["core"]:
             data["profiles"]["core"].append(adapter)
+validator_paths = {"tools/docs_validation.py", "tools/validate-docs.py"}
+if not validator_bundle_managed:
+    data["managed_paths"] = [path for path in data["managed_paths"] if path not in validator_paths]
+    data["profiles"]["core"] = [path for path in data["profiles"]["core"] if path not in validator_paths]
 destination.write_text(json.dumps(data, indent=2) + "\n")
 PY
     then
@@ -548,16 +572,71 @@ PY
 should_include_doc() {
     local relative_path="$1"
 
-    local optional_doc
+    local profile_path
 
-    for optional_doc in "${OPTIONAL_ADVANCED_DOCS[@]}"; do
-        if [ "$relative_path" = "$optional_doc" ]; then
+    for profile_path in "${OPTIONAL_ADVANCED_DOCS[@]}"; do
+        if [ "$relative_path" = "$profile_path" ] || [[ "$relative_path" == "$profile_path/"* ]]; then
             [ "$WITH_ADVANCED_DOCS" = true ]
             return
         fi
     done
 
-    return 0
+    for profile_path in "${CORE_PROFILE_PATHS[@]}"; do
+        if [ "$relative_path" = "$profile_path" ] || [[ "$relative_path" == "$profile_path/"* ]]; then
+            return 0
+        fi
+    done
+
+    echo "Error: Template documentation is not assigned to an installation profile: $relative_path" >&2
+    return 1
+}
+
+prepare_validator_bundle() {
+    local relative_path
+    local ownership
+
+    VALIDATOR_BUNDLE_MANAGED=true
+    [ "$FORCE" = true ] && return 0
+    if [ "$UPDATE" = true ]; then
+        ownership="$(python3 - "$DEST_DIR/template-manifest.json" "$DEST_DIR/tools/docs_validation.py" "$DEST_DIR/tools/validate-docs.py" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path, helper_path, validator_path = map(Path, sys.argv[1:])
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    managed = set(manifest.get("managed_paths", []))
+    core = set(manifest.get("profiles", {}).get("core", []))
+except (OSError, ValueError, TypeError):
+    print("unmanaged")
+    raise SystemExit(0)
+
+helper = "tools/docs_validation.py"
+validator = "tools/validate-docs.py"
+if {helper, validator}.issubset(managed) and {helper, validator}.issubset(core):
+    print("managed")
+elif not helper_path.exists() and validator in managed and validator in core:
+    # Migrate the prior single-file validator only when its manifest owned it.
+    print("managed")
+elif not helper_path.exists() and not validator_path.exists():
+    print("managed")
+else:
+    print("unmanaged")
+PY
+        )"
+        if [ "$ownership" = managed ]; then
+            return 0
+        fi
+        VALIDATOR_BUNDLE_MANAGED=false
+        return 0
+    fi
+    for relative_path in "tools/docs_validation.py" "tools/validate-docs.py"; do
+        if [ -e "$DEST_DIR/$relative_path" ] || [ -L "$DEST_DIR/$relative_path" ]; then
+            VALIDATOR_BUNDLE_MANAGED=false
+            return 0
+        fi
+    done
 }
 
 report_blocked_path() {
@@ -637,10 +716,16 @@ preflight_destinations() {
     local failed=false
 
     prepare_manifest_models || failed=true
+    prepare_validator_bundle
 
-    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py"; do
+    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py"; do
         check_destination_path "$relative_path" || failed=true
     done
+    if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
+        for relative_path in "tools/docs_validation.py" "tools/validate-docs.py"; do
+            check_destination_path "$relative_path" || failed=true
+        done
+    fi
     if adapter_selected_for_copy claude; then
         check_destination_path "CLAUDE.md" || failed=true
     fi
@@ -651,7 +736,9 @@ preflight_destinations() {
         check_destination_path "QWEN.md" || failed=true
     fi
     if [ "$WITH_LEGACY_AGENTS" = true ]; then
-        check_destination_path ".agents/AGENTS.md" || failed=true
+        for relative_path in "${OPTIONAL_LEGACY_PATHS[@]}"; do
+            check_destination_path "$relative_path" || failed=true
+        done
     fi
 
     while IFS= read -r -d '' source_file; do
@@ -698,10 +785,18 @@ if adapter_selected_for_copy qwen; then
 fi
 
 copy_file "$SRC_DIR/tests/validate-task-evidence.py" "tools/validate-task-evidence.py"
-copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
+if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
+    copy_file "$SRC_DIR/tests/docs_validation.py" "tools/docs_validation.py"
+    copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
+else
+    echo "SKIP (validator bundle conflict): tools/docs_validation.py, tools/validate-docs.py"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 2))
+fi
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
-    copy_file "$SRC_DIR/AGENTS.md" ".agents/AGENTS.md"
+    for relative_path in "${OPTIONAL_LEGACY_PATHS[@]}"; do
+        copy_file "$SRC_DIR/AGENTS.md" "$relative_path"
+    done
 fi
 
 while IFS= read -r -d '' source_file; do

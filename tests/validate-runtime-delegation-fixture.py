@@ -33,7 +33,12 @@ def main() -> None:
     require(data.get("fixture") is True, "fixture must be explicitly marked as non-live evidence")
     require(data.get("schema_version") == 1, "unsupported schema version")
     require(REQUIRED_FIELDS.issubset(data), f"missing fields: {sorted(REQUIRED_FIELDS - set(data))}")
-    require(data["mode"] in {"delegated", "sequential-fallback"}, "invalid delegation mode")
+    valid_modes = {"delegated", "sequential-fallback", "blocked-before-run"}
+    require(data["mode"] in valid_modes, "invalid delegation mode")
+    for record in (ROOT / "docs/internal/runtime-delegation-evidence").glob("*.md"):
+        frontmatter = record.read_text(encoding="utf-8").split("---", 2)[1]
+        if "status: skipped" in frontmatter:
+            require("mode: blocked-before-run" in frontmatter, f"{record.relative_to(ROOT)}: skipped record must use blocked-before-run")
     require(all(isinstance(data[field], str) and data[field] for field in REQUIRED_FIELDS - {"roles", "fixture", "schema_version"}), "empty evidence field")
     require(isinstance(data["roles"], list) and REQUIRED_ROLES.issubset(data["roles"]), "fixture does not cover every required role")
     print("PASS: runtime delegation evidence schema fixture")

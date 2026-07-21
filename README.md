@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.4.0`. See [V4 Acceptance Matrix](V4_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.4.1`. See [V4.1 Acceptance Matrix](V4_1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
 1. **Rule cho AI Agent (`AGENTS.md` + runtime adapters)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. Khi khởi tạo/refresh docs, host có delegation phải tạo sub-agent chuyên biệt trước khi ghi; host không có capability phải ghi fallback tuần tự. `CLAUDE.md`, `GEMINI.md`, và `QWEN.md` là các entrypoint ngắn, cùng trỏ về `AGENTS.md` là nguồn rule canon. Với Gemma/raw API, cấu hình host phải inject [system prompt template](docs/templates/agent-system-prompt-template.md); repository file không tự trở thành system prompt.
@@ -17,7 +17,7 @@ Current release: `0.4.0`. See [V4 Acceptance Matrix](V4_ACCEPTANCE_MATRIX.md) an
    ```bash
    bash /path/to/ai-project-template/setup.sh --dry-run
    ```
-   Để nâng một project đã cài template, chạy phiên bản template mới với `bash /path/to/ai-project-template/setup.sh --update`. Lệnh này yêu cầu `template-manifest.json` do template quản lý, tự suy ra các profile/runtime template-managed đã cài, tự tạo thư mục `.ai-template-backup.*` trong project đích rồi thay thế các file managed bằng phiên bản mới. Adapter runtime do người dùng sở hữu không bị thay thế. Với manifest cũ chưa có `managed_profiles`, thêm lại `--with-advanced-docs` và/hoặc `--with-legacy-agents` nếu muốn nâng các profile đó. Kiểm tra trước bằng `--dry-run --update`. Symlink và manifest không thuộc template vẫn bị chặn. Update là per-file, không phải transaction: nếu bị ngắt, mở `RECOVERY.md` trong backup để khôi phục file cần thiết.
+   Khi chạy trong Terminal, script cho phép chọn nhiều runtime: Claude Code, Gemini CLI, Qwen Code và Gemma/custom API harness. Nhấn Enter để cài tất cả; dùng `--interactive` khi cần menu trong pipe/PTY. Với automation dùng `--models gemini,qwen` (hoặc `claude`, `gemma`, `all`) một lần. Core luôn cài `AGENTS.md`; lựa chọn chỉ quyết định các adapter `CLAUDE.md`, `GEMINI.md`, `QWEN.md` và được merge vào `template-manifest.json` khi chạy incremental setup. Gemma/custom API không có filename adapter: chọn nó sẽ in hướng dẫn để cấu hình host inject system/developer prompt template. Core chỉ cài rule chính và onboarding/overview/architecture (gồm Generated Inventory)/feature specs. Thêm `--with-advanced-docs` cho API, backend, infrastructure và user manual; thêm `--with-legacy-agents` nếu tool của bạn chỉ đọc `.agents/AGENTS.md`.
    Khi chạy trong Terminal, script cho phép chọn nhiều runtime: Claude Code, Gemini CLI, Qwen Code và Gemma/custom API harness. Nhấn Enter để cài tất cả; dùng `--interactive` khi cần menu trong pipe/PTY. Với automation dùng `--models gemini,qwen` (hoặc `claude`, `gemma`, `all`) một lần. Core luôn cài `AGENTS.md`; lựa chọn chỉ quyết định các adapter `CLAUDE.md`, `GEMINI.md`, `QWEN.md` và được merge vào `template-manifest.json` khi chạy incremental setup. Gemma/custom API không có filename adapter: chọn nó sẽ in hướng dẫn để cấu hình host inject system/developer prompt template. Core chỉ cài rule chính và onboarding/overview/architecture (gồm Generated Inventory)/feature specs. Thêm `--with-advanced-docs` cho API, backend, infrastructure và user manual; thêm `--with-legacy-agents` nếu tool của bạn chỉ đọc `.agents/AGENTS.md`.
    Mặc định script giữ nguyên file đã tồn tại, kể cả symlink ở chính file đích. `template-manifest.json` không thuộc template hoặc là symlink cũng được preserve; khi đó installer không cập nhật inventory runtime. Chỉ dùng `--force` khi bạn chủ động muốn thay thế các file template tương ứng; script sẽ dừng trước khi ghi nếu đường dẫn template có symlink không an toàn hoặc một file nằm tại vị trí cần là thư mục. Kiểm tra này giả định không có process khác thay đổi filesystem đích trong lúc setup chạy. Installer dọn temporary file khi bị ngắt, nhưng không cung cấp transaction toàn-vault; nếu bị ngắt sau khi vài file đã được atomically cài, hãy chạy lại setup để hoàn tất.
    Bạn có thể đặt folder template trong project đích rồi chạy script từ root của project. Tuy nhiên, không chạy script trong chính folder template hoặc thư mục con của template.
@@ -43,6 +43,19 @@ Current release: `0.4.0`. See [V4 Acceptance Matrix](V4_ACCEPTANCE_MATRIX.md) an
          └── examples/ai-support-agent/
    ```
 4. Mở thư mục project bằng ứng dụng Obsidian (Open as Vault) để bắt đầu. Các starter note trong `docs/current/` được đánh dấu `status: draft`; hãy điền chúng bằng thông tin dự án trước khi coi chúng là source of truth. Copy material từ `docs/templates/` khi tạo feature/evidence; không dùng template hoặc sample làm source of truth. Dùng `00 - Onboarding/4. Whole-Project Documentation Update Prompt` để yêu cầu agent tạo/refresh toàn bộ docs từ source hiện hữu. Đọc `00 - Onboarding/5. Model Runtime Instructions` để xác minh runtime thực sự nạp rule. `docs/internal/` là source-only và không được cài vào project downstream.
+
+## Template upgrade
+
+From the project root, inspect the update before writing:
+
+```bash
+bash /path/to/ai-project-template/setup.sh --dry-run --update
+bash /path/to/ai-project-template/setup.sh --update
+```
+
+- The destination needs a regular, template-owned `template-manifest.json`; symlinked, malformed, or unmanaged manifests are refused.
+- The installer derives installed profiles and template-managed adapters, preserves user-owned adapters, and creates `.ai-template-backup.*` with `RECOVERY.md` before replacing each managed file.
+- A legacy manifest without `managed_profiles` needs explicit `--with-advanced-docs` and/or `--with-legacy-agents` when those profiles should be upgraded. Updates are per-file, not transactional; use `RECOVERY.md` if interrupted.
 
 ## Kiểm tra template
 

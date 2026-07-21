@@ -6,7 +6,7 @@ runtime_version: unavailable
 host: macOS, workspace /Users/lucifer/Documents/Projects/Prime/ai-project-template
 captured_at: 2026-07-20T15:09:23+07:00
 coordinator: /root
-mode: sequential-fallback
+mode: blocked-before-run
 capability_check: "`command -v gemini` returned NOT_FOUND; `/agents list` could not be invoked."
 delegation_evidence: "No runtime session exists because Gemini CLI is not installed on this validation host."
 ---

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 — 2026-07-21
+
+- Made `template-manifest.json` the source of profile membership and added installer parity coverage for its installed validator files.
+- Validated the complete source manifest before preflight, rejecting traversal, control characters, malformed metadata, missing-profile, and unprofiled-document cases without writing the destination.
+- Rejected overlapping profile paths and unsafe destination manifest paths during update; reserved profile definitions now always come from the current template.
+- Shared Markdown link and Mermaid validation between repository and downstream validators.
+- Made the shared downstream validator/helper an all-or-nothing bundle when user-owned files conflict, including during update; safely migrates a manifest-owned prior validator.
+- Simplified update/onboarding navigation, corrected the vault map, and removed release-only runtime policy from downstream guidance.
+- Added a non-destructive internal-evidence index and a `blocked-before-run` runtime-evidence mode.
+- Marked AI-only spec rows as an explicit addendum to reduce unnecessary form filling for simple features.
+
 ## 0.4.0 — 2026-07-20
 
 - Required documentation initialization and refresh to create applicable specialized sub-agents on hosts that expose delegation.

@@ -50,7 +50,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((7 + core_doc_count))
+expected_file_count=$((8 + core_doc_count))
 
 (
     cd "$target"
@@ -92,6 +92,7 @@ assert_file_contains "$target/GEMINI.md" "AGENTS.md"
 assert_file_contains "$target/GEMINI.md" "@AGENTS.md"
 assert_file_contains "$target/QWEN.md" "AGENTS.md"
 [ -f "$target/tools/validate-task-evidence.py" ] || fail "default install did not copy task-evidence validator"
+[ -f "$target/tools/docs_validation.py" ] || fail "default install did not copy shared documentation validator"
 [ -f "$target/tools/validate-docs.py" ] || fail "default install did not copy downstream docs validator"
 python3 "$target/tools/validate-docs.py" || fail "downstream docs validator failed after default install"
 python3 "$target/tools/validate-task-evidence.py" || fail "downstream task-evidence validator failed without task records"
@@ -297,6 +298,32 @@ assert manifest["custom_field"] == "preserve-me"
 assert manifest["profiles"]["custom"] == ["custom/path"]
 PY
 
+unsafe_update_target="$TEST_DIR/unsafe-update-target"
+mkdir -p "$unsafe_update_target"
+(
+    cd "$unsafe_update_target"
+    bash "$TEMPLATE_DIR/setup.sh"
+) > "$TEST_DIR/unsafe-update-first.txt"
+printf 'preserve me\n' > "$unsafe_update_target/AGENTS.md"
+python3 - "$unsafe_update_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["profiles"]["--with-legacy-agents"] = ["../escape"]
+manifest["managed_paths"].append("../escape")
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$unsafe_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/unsafe-update-output.txt" 2>&1; then
+    fail "update accepted unsafe destination manifest paths"
+fi
+assert_file_contains "$TEST_DIR/unsafe-update-output.txt" "valid template-owned template-manifest"
+assert_file_contains "$unsafe_update_target/AGENTS.md" "preserve me"
+
 malformed_manifest_target="$TEST_DIR/malformed-manifest-target"
 mkdir -p "$malformed_manifest_target"
 printf '{"template":"ai-agent-obsidian-project-template"}\n' > "$malformed_manifest_target/template-manifest.json"
@@ -346,12 +373,13 @@ PY
     cd "$upgrade_manifest_target"
     bash "$TEMPLATE_DIR/setup.sh" --models claude
 ) > "$TEST_DIR/upgrade-manifest-second.txt"
-python3 - "$upgrade_manifest_target/template-manifest.json" <<'PY'
+python3 - "$upgrade_manifest_target/template-manifest.json" "$TEMPLATE_DIR/template-manifest.json" <<'PY'
 import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["version"] == "0.4.0"
+template = json.load(open(sys.argv[2]))
+assert manifest["version"] == template["version"]
 assert "docs/current/00 - Onboarding/5. Model Runtime Instructions.md" in manifest["profiles"]["core"]
 PY
 
@@ -370,6 +398,7 @@ assert_file_contains "$selected_adapter_directory_target/AGENTS.md" "preserve th
 
 link_boundary_target="$TEST_DIR/link-boundary-target"
 mkdir -p "$link_boundary_target/docs/current" "$link_boundary_target/tools"
+cp "$TEMPLATE_DIR/tests/docs_validation.py" "$link_boundary_target/tools/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$link_boundary_target/tools/validate-docs.py"
 printf 'outside fixture root\n' > "$TEST_DIR/outside-fixture.md"
 printf '[outside](../../../outside-fixture.md)\n' > "$link_boundary_target/docs/current/escaping-link.md"
@@ -380,6 +409,7 @@ assert_file_contains "$TEST_DIR/link-boundary-output.txt" "escapes project root"
 
 file_uri_target="$TEST_DIR/file-uri-target"
 mkdir -p "$file_uri_target/docs/current" "$file_uri_target/tools"
+cp "$TEMPLATE_DIR/tests/docs_validation.py" "$file_uri_target/tools/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$file_uri_target/tools/validate-docs.py"
 printf '[outside](file:///outside-fixture.md)\n' > "$file_uri_target/docs/current/file-uri-link.md"
 if python3 "$file_uri_target/tools/validate-docs.py" > "$TEST_DIR/file-uri-output.txt" 2>&1; then
@@ -395,7 +425,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/validate-docs.py" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -408,6 +438,7 @@ target_root = Path(sys.argv[2])
 profile = json.loads((template_root / "template-manifest.json").read_text())["profiles"]["core"]
 source_overrides = {
     "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
+    "tools/docs_validation.py": "tests/docs_validation.py",
     "tools/validate-docs.py": "tests/validate-project-docs.py",
 }
 expected: set[str] = set()
@@ -435,6 +466,7 @@ for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QW
     cp "$TEMPLATE_DIR/$template_file" "$metadata_template/$template_file"
 done
 cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/validate-task-evidence.py"
+cp "$TEMPLATE_DIR/tests/docs_validation.py" "$metadata_template/tests/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/validate-project-docs.py"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
 printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
@@ -443,6 +475,139 @@ printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
     bash "$metadata_template/setup.sh"
 ) > "$TEST_DIR/metadata-filter.txt"
 [ ! -e "$metadata_target/docs/.DS_Store" ] || fail "installer copied .DS_Store metadata"
+
+invalid_profile_template="$TEST_DIR/invalid-profile-template"
+invalid_profile_target="$TEST_DIR/invalid-profile-target"
+mkdir -p "$invalid_profile_template/tests" "$invalid_profile_target"
+for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
+    cp "$TEMPLATE_DIR/$template_file" "$invalid_profile_template/$template_file"
+done
+cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$invalid_profile_template/tests/validate-task-evidence.py"
+cp "$TEMPLATE_DIR/tests/docs_validation.py" "$invalid_profile_template/tests/docs_validation.py"
+cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tests/validate-project-docs.py"
+cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
+python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["profiles"]["--with-legacy-agents"] = ["../../outside-target"]
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$invalid_profile_target"
+    bash "$invalid_profile_template/setup.sh" --with-legacy-agents
+) > "$TEST_DIR/invalid-profile-output.txt" 2>&1; then
+    fail "installer accepted an unsafe source profile path"
+fi
+assert_file_contains "$TEST_DIR/invalid-profile-output.txt" "invalid profile paths"
+[ ! -e "$TEST_DIR/outside-target" ] || fail "unsafe source profile wrote outside destination"
+[ -z "$(find "$invalid_profile_target" -type f -print -quit)" ] || fail "invalid source profile wrote destination files"
+
+invalid_control_target="$TEST_DIR/invalid-control-target"
+mkdir -p "$invalid_control_target"
+cp "$TEMPLATE_DIR/template-manifest.json" "$invalid_profile_template/template-manifest.json"
+python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["profiles"]["--with-legacy-agents"] = [".agents/AGENTS.md\n../outside-control"]
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$invalid_control_target"
+    bash "$invalid_profile_template/setup.sh" --with-legacy-agents
+) > "$TEST_DIR/invalid-control-output.txt" 2>&1; then
+    fail "installer accepted a control character in a source profile path"
+fi
+assert_file_contains "$TEST_DIR/invalid-control-output.txt" "control character"
+[ ! -e "$TEST_DIR/outside-control" ] || fail "control-character profile wrote outside destination"
+[ -z "$(find "$invalid_control_target" -type f -print -quit)" ] || fail "control-character profile wrote destination files"
+
+overlap_profile_target="$TEST_DIR/overlap-profile-target"
+mkdir -p "$overlap_profile_target"
+cp "$TEMPLATE_DIR/template-manifest.json" "$invalid_profile_template/template-manifest.json"
+python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["profiles"]["--with-advanced-docs"].append("docs/templates/agent-system-prompt-template.md")
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$overlap_profile_target"
+    bash "$invalid_profile_template/setup.sh"
+) > "$TEST_DIR/overlap-profile-output.txt" 2>&1; then
+    fail "installer accepted overlapping profile paths"
+fi
+assert_file_contains "$TEST_DIR/overlap-profile-output.txt" "profile paths overlap"
+[ -z "$(find "$overlap_profile_target" -type f -print -quit)" ] || fail "overlapping source profile wrote destination files"
+
+invalid_schema_target="$TEST_DIR/invalid-schema-target"
+mkdir -p "$invalid_schema_target"
+python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["managed_paths"] = None
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$invalid_schema_target"
+    bash "$invalid_profile_template/setup.sh"
+) > "$TEST_DIR/invalid-schema-output.txt" 2>&1; then
+    fail "installer accepted an invalid source manifest schema"
+fi
+assert_file_contains "$TEST_DIR/invalid-schema-output.txt" "invalid profile paths"
+[ -z "$(find "$invalid_schema_target" -type f -print -quit)" ] || fail "invalid source manifest schema wrote destination files"
+
+unprofiled_template="$TEST_DIR/unprofiled-template"
+unprofiled_target="$TEST_DIR/unprofiled-target"
+cp -R "$TEMPLATE_DIR" "$unprofiled_template"
+mkdir -p "$unprofiled_target"
+printf '# Unprofiled fixture\n' > "$unprofiled_template/docs/current/unprofiled-fixture.md"
+if (
+    cd "$unprofiled_target"
+    bash "$unprofiled_template/setup.sh"
+) > "$TEST_DIR/unprofiled-output.txt" 2>&1; then
+    fail "installer accepted documentation missing from every profile"
+fi
+assert_file_contains "$TEST_DIR/unprofiled-output.txt" "not declared by a profile"
+[ -z "$(find "$unprofiled_target" -type f -print -quit)" ] || fail "unprofiled template documentation wrote destination files"
+
+validator_conflict_target="$TEST_DIR/validator-conflict-target"
+mkdir -p "$validator_conflict_target/tools"
+printf '# user-owned validator helper\n' > "$validator_conflict_target/tools/docs_validation.py"
+(
+    cd "$validator_conflict_target"
+    bash "$TEMPLATE_DIR/setup.sh"
+) > "$TEST_DIR/validator-conflict-output.txt"
+assert_file_contains "$TEST_DIR/validator-conflict-output.txt" "SKIP (validator bundle conflict)"
+assert_file_contains "$validator_conflict_target/tools/docs_validation.py" "user-owned validator helper"
+[ ! -e "$validator_conflict_target/tools/validate-docs.py" ] || fail "validator bundle was partially installed"
+python3 - "$validator_conflict_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1]))
+for path in ["tools/docs_validation.py", "tools/validate-docs.py"]:
+    assert path not in manifest["managed_paths"]
+    assert path not in manifest["profiles"]["core"]
+PY
+(
+    cd "$validator_conflict_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/validator-conflict-update-output.txt"
+assert_file_contains "$TEST_DIR/validator-conflict-update-output.txt" "SKIP (validator bundle conflict)"
+assert_file_contains "$validator_conflict_target/tools/docs_validation.py" "user-owned validator helper"
+[ ! -e "$validator_conflict_target/tools/validate-docs.py" ] || fail "update installed half of an unmanaged validator bundle"
 
 optional_target="$TEST_DIR/optional-target"
 mkdir -p "$optional_target"
@@ -528,12 +693,13 @@ assert_file_contains "$update_backup_dir/docs/current/00 - Onboarding/4. Whole-P
 assert_file_contains "$update_backup_dir/docs/current/03 - API & Integrations/API Reference.md" "custom managed advanced documentation"
 assert_file_contains "$update_backup_dir/.agents/AGENTS.md" "custom managed legacy rules"
 assert_file_contains "$update_backup_dir/RECOVERY.md" "mix of versions"
-python3 - "$update_target/template-manifest.json" <<'PY'
+python3 - "$update_target/template-manifest.json" "$TEMPLATE_DIR/template-manifest.json" <<'PY'
 import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["version"] == "0.4.0"
+template = json.load(open(sys.argv[2]))
+assert manifest["version"] == template["version"]
 PY
 
 update_without_manifest_target="$TEST_DIR/update-without-manifest-target"

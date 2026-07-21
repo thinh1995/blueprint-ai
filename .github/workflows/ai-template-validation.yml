@@ -28,7 +28,6 @@ jobs:
           bash -n setup.sh tests/setup.sh tests/validate-docs.sh tests/render-mermaid.sh template-paths.sh
           bash tests/setup.sh
           bash tests/validate-docs.sh
-          python3 tests/validate-project-docs.py
           python3 tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
           npm install -g @mermaid-js/mermaid-cli@11.4.2
           if [ "$RUNNER_OS" = "Linux" ]; then

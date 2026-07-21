@@ -6,7 +6,7 @@ runtime_version:
 host:
 captured_at:
 coordinator:
-mode: # delegated | sequential-fallback
+mode: # delegated | sequential-fallback | blocked-before-run
 capability_check:
 delegation_evidence:
 ---
@@ -17,9 +17,9 @@ Create one record for a real whole-project documentation initialization or refre
 ## Required fields
 
 - `runtime`, `runtime_version`, `host`, `captured_at`, and `coordinator` identify the tested environment.
-- `mode` is `delegated` only if the host created sub-agents; otherwise use `sequential-fallback`.
+- `mode` is `delegated` only if the host created sub-agents. Use `sequential-fallback` only when the host ran the required phases without delegation capability. Use `blocked-before-run` when the runtime was unavailable or failed before its first phase.
 - `capability_check` records the exact host command, tool inspection, or session control used to determine availability.
-- `delegation_evidence` contains a log, task ID, screenshot reference, or host result proving the sub-agent handoff; for a fallback it explains why no delegation was available.
+- `delegation_evidence` contains a log, task ID, screenshot reference, or host result proving the sub-agent handoff; for a fallback it explains why no delegation was available; for a blocked run it records the failure or absence.
 
 ## Role results
 

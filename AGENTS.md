@@ -33,6 +33,12 @@ When initializing or refreshing whole-project documentation, first inspect the a
 - If the host has no delegation capability, record that capability check and execute the same role phases sequentially. Never claim sub-agents were created in that fallback.
 - A prompt or repository file is not proof of delegation. Record the host/runtime version, capability check, selected roles, and delegation evidence in the task evidence or final report.
 
+# RULE: AGENT ORCHESTRATION
+
+- Select collaborating agents only from capabilities actually available in the active host. When the host supports delegation, use it for independent or high-risk work—such as review, security, test/QA, or architecture—when warranted by the task.
+- Assign every delegated agent explicit ownership and require handoffs to include supporting evidence plus separate Fact / Assumption / Unknown entries.
+- Code changes require mapped test or validation and review proportionate to their risk.
+
 # RULE: ENVIRONMENT & DESTRUCTIVE-ACTION SAFETY
 
 - Default to local/dev. Before running a command against staging, production, shared infrastructure, or an external service, confirm the target environment and that the task authorizes the action.

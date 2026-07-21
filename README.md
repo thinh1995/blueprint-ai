@@ -1,9 +1,9 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.4.1`. See [V4.1 Acceptance Matrix](V4_1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.4.2`. See [V4.2 Acceptance Matrix](V4_2_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
-1. **Rule cho AI Agent (`AGENTS.md` + runtime adapters)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. Khi khởi tạo/refresh docs, host có delegation phải tạo sub-agent chuyên biệt trước khi ghi; host không có capability phải ghi fallback tuần tự. `CLAUDE.md`, `GEMINI.md`, và `QWEN.md` là các entrypoint ngắn, cùng trỏ về `AGENTS.md` là nguồn rule canon. Với Gemma/raw API, cấu hình host phải inject [system prompt template](docs/templates/agent-system-prompt-template.md); repository file không tự trở thành system prompt.
+1. **Rule cho AI Agent (`AGENTS.md` + runtime adapters)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. Agent chỉ chọn năng lực có sẵn trên host; delegation được dùng khi phù hợp với công việc độc lập hoặc rủi ro cao, với ownership, evidence và handoff rõ ràng. Khi khởi tạo/refresh docs, host có delegation phải tạo sub-agent chuyên biệt trước khi ghi; host không có capability phải ghi fallback tuần tự. `CLAUDE.md`, `GEMINI.md`, và `QWEN.md` là các entrypoint ngắn, cùng trỏ về `AGENTS.md` là nguồn rule canon. Với Gemma/raw API, cấu hình host phải inject [system prompt template](docs/templates/agent-system-prompt-template.md); repository file không tự trở thành system prompt.
 2. **Cấu trúc Obsidian**: `docs/current/` chỉ chứa tài liệu thực của dự án; `docs/templates/` chứa reusable templates và sample AI Agent để copy khi cần. Mermaid là định dạng sơ đồ chính thức.
 
 ## Cách sử dụng cho Project mới

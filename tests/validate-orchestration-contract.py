@@ -26,6 +26,14 @@ def main() -> None:
         "If the host has no delegation capability",
     ]:
         require_text(policy, text)
+    for text in [
+        "capabilities actually available in the active host",
+        "review, security, test/QA, or architecture",
+        "explicit ownership",
+        "Fact / Assumption / Unknown",
+        "test or validation and review proportionate to their risk",
+    ]:
+        require_text(policy, text)
     for text in ["BẮT BUỘC tạo các sub-agent phù hợp", "không nói rằng đã tạo sub-agent"]:
         require_text(prompt, text)
     for text in ["Codex-compatible host", "Claude Code", "Gemini CLI", "Qwen Code", "Gemma/custom harness"]:

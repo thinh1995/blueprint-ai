@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2 — 2026-07-21
+
+- Added runtime-neutral agent orchestration guidance: select only available capabilities, delegate independent or high-risk review/security/QA/architecture work when warranted, and require explicit ownership plus evidence-based handoffs.
+- Required code changes to map test or validation and receive review proportionate to risk.
+
 ## 0.4.1 — 2026-07-21
 
 - Made `template-manifest.json` the source of profile membership and added installer parity coverage for its installed validator files.

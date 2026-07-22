@@ -37,8 +37,7 @@ def main() -> None:
     version = json.loads((ROOT / "template-manifest.json").read_text())["version"]
     matrix = ROOT / f"V{version.split('.', 1)[1].replace('.', '_')}_ACCEPTANCE_MATRIX.md"
     require_text(ROOT / "README.md", f"Current release: `{version}`.")
-    require_text(ROOT / "CHANGELOG.md", "## 2026-07-22")
-    require_text(ROOT / "CHANGELOG.md", f"### {version}")
+    require_text(ROOT / "CHANGELOG.md", f"## [{version}] - 2026-07-22")
     require_text(matrix, f"Release target: `{version}`")
     require_text(ROOT / "GEMINI.md", "Antigravity CLI Project Instructions")
     require_text(ROOT / "QWEN.md", "AGENTS.md")

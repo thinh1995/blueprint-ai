@@ -1,8 +1,6 @@
 # Changelog
 
-## 2026-07-22
-
-### 0.4.3
+## [0.4.3] - 2026-07-22
 
 - Replaced the Gemini CLI installer selection with Antigravity CLI (`antigravity`) while retaining the documented `GEMINI.md` compatibility adapter.
 - Added a validated, explicitly non-live Antigravity conformance fixture for `agy`, workspace context files, and `/agents`.
@@ -10,14 +8,12 @@
 - Safely reconcile unchanged v0.4.0–v0.4.2 template filenames during `--update`, while preserving user-modified files and symlinks.
 - Required changelog entries created on the same date to share one date heading.
 
-## 2026-07-21
-
-### 0.4.2
+## [0.4.2] - 2026-07-21
 
 - Added runtime-neutral agent orchestration guidance: select only available capabilities, delegate independent or high-risk review/security/QA/architecture work when warranted, and require explicit ownership plus evidence-based handoffs.
 - Required code changes to map test or validation and receive review proportionate to risk.
 
-### 0.4.1
+## [0.4.1] - 2026-07-21
 
 - Made `template-manifest.json` the source of profile membership and added installer parity coverage for its installed validator files.
 - Validated the complete source manifest before preflight, rejecting traversal, control characters, malformed metadata, missing-profile, and unprofiled-document cases without writing the destination.
@@ -28,7 +24,7 @@
 - Added a non-destructive internal-evidence index and a `blocked-before-run` runtime-evidence mode.
 - Marked AI-only spec rows as an explicit addendum to reduce unnecessary form filling for simple features.
 
-## 0.4.0 — 2026-07-20
+## [0.4.0] - 2026-07-20
 
 - Required documentation initialization and refresh to create applicable specialized sub-agents on hosts that expose delegation.
 - Added role boundaries, evidence handoffs, coordinator ownership, conflict resolution and an explicit no-delegation sequential fallback.
@@ -37,13 +33,13 @@
 - Hardened `--update` to preserve user-owned adapters, retain previously selected optional profiles, and write per-file recovery guidance in each backup.
 - Made completed task evidence require an artifact present at its recorded Git revision; added runtime-delegation evidence schema validation and pinned the CI Node runtime.
 
-## 0.3.1 — 2026-07-20
+## [0.3.1] - 2026-07-20
 
 - Added native `GEMINI.md` and `QWEN.md` adapters that delegate to canonical `AGENTS.md` rules.
 - Added runtime onboarding for context verification and a system/developer-prompt template for raw/custom model harnesses, including Gemma deployments.
 - Clarified that prompting improves instruction priority but cannot replace runtime discovery, tool permissions, approvals, or model-specific compliance tests.
 
-## 0.3.0 — 2026-07-18
+## [0.3.0] - 2026-07-18
 
 - Separated downstream project notes, reusable templates, and source-only repository records.
 - Added downstream documentation validation and whole-project documentation prompts.
@@ -52,7 +48,7 @@
 - Reject `file:` Markdown URIs and make the core manifest match the default installation exactly.
 - Configure Mermaid's Puppeteer renderer without Chromium sandbox only on Ubuntu CI runners where the browser sandbox is unavailable.
 
-## 0.2.0 — 2026-07-18
+## [0.2.0] - 2026-07-18
 
 - Added BA Foundation templates for goals, stakeholders/RACI, personas, business rules, glossary, and risks.
 - Declared Mermaid the official diagram standard, with required product and AI Agent diagram types.
@@ -60,7 +56,7 @@
 - Added a complete fictional AI Support Agent sample with product process, interaction, state/recovery, and data-boundary diagrams.
 - Added v0.2.0 acceptance criteria and documentation validation.
 
-## 0.1 — 2026-07-18
+## [0.1.0] - 2026-07-18
 
 - Established the GitHub release baseline at version `0.1`.
 - Finalized the initial template scope and acceptance matrix.

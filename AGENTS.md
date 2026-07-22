@@ -21,7 +21,7 @@ Documentation sync is required when behavior changes in an API/route, schema, pe
 
 Before writing code, scan `docs/current` for related technical specifications, architecture decisions, database schemas, and feature Product/Tech/QA specs. Cross-reference them with the source before proposing implementation.
 
-After a behavior-changing task, locate the corresponding Obsidian note and make a targeted update (do not replace its whole contents). Add a changelog entry only when the downstream project has adopted that convention; group every entry created on the same calendar date under one shared date heading, and never inherit this template repository's changelog entries. Run relevant documentation and runtime validation, reporting any unverified behavior.
+After a behavior-changing task, locate the corresponding Obsidian note and make a targeted update (do not replace its whole contents). Add a changelog entry only when the downstream project has adopted that convention; use a distinct semantic-version heading in the form `## [MAJOR.MINOR.PATCH] - YYYY-MM-DD`, and never inherit this template repository's changelog entries. Run relevant documentation and runtime validation, reporting any unverified behavior.
 
 # RULE: DOCUMENTATION INITIALIZATION ORCHESTRATION
 

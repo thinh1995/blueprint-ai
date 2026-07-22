@@ -1,11 +1,23 @@
 # Changelog
 
-## 0.4.2 — 2026-07-21
+## 2026-07-22
+
+### 0.4.3
+
+- Replaced the Gemini CLI installer selection with Antigravity CLI (`antigravity`) while retaining the documented `GEMINI.md` compatibility adapter.
+- Added a validated, explicitly non-live Antigravity conformance fixture for `agy`, workspace context files, and `/agents`.
+- Installed downstream task evidence in root `task-evidence/`, alongside `docs/`, and numbered reusable root template filenames.
+- Safely reconcile unchanged v0.4.0–v0.4.2 template filenames during `--update`, while preserving user-modified files and symlinks.
+- Required changelog entries created on the same date to share one date heading.
+
+## 2026-07-21
+
+### 0.4.2
 
 - Added runtime-neutral agent orchestration guidance: select only available capabilities, delegate independent or high-risk review/security/QA/architecture work when warranted, and require explicit ownership plus evidence-based handoffs.
 - Required code changes to map test or validation and receive review proportionate to risk.
 
-## 0.4.1 — 2026-07-21
+### 0.4.1
 
 - Made `template-manifest.json` the source of profile membership and added installer parity coverage for its installed validator files.
 - Validated the complete source manifest before preflight, rejecting traversal, control characters, malformed metadata, missing-profile, and unprofiled-document cases without writing the destination.

@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "managed_profiles": ["core"],
   "managed_paths": [
     "AGENTS.md",
@@ -11,6 +11,7 @@
     "tools/validate-task-evidence.py",
     "tools/validate-docs.py",
     "tools/docs_validation.py",
+    "task-evidence",
     "docs/current",
     "docs/templates"
   ],
@@ -24,6 +25,7 @@
       "tools/validate-task-evidence.py",
       "tools/validate-docs.py",
       "tools/docs_validation.py",
+      "task-evidence",
       "docs/current/00 - Onboarding/1. Setup Guide.md",
       "docs/current/00 - Onboarding/2. Task Evidence.md",
       "docs/current/00 - Onboarding/3. AI Agent Workflow.md",

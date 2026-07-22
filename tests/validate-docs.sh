@@ -24,8 +24,8 @@ for file in \
     require_text "$file" "source_revision:"
 done
 
-require_text "docs/templates/task-evidence-template.md" "Acceptance criteria and validation"
-require_text "docs/templates/task-evidence-template.md" "output_artifact_path:"
+require_text "docs/templates/3. Task Evidence Template.md" "Acceptance criteria and validation"
+require_text "docs/templates/3. Task Evidence Template.md" "output_artifact_path:"
 require_text "AGENTS.md" "Never invent file/line references"
 require_text "AGENTS.md" "untrusted data"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified: false"
@@ -60,5 +60,6 @@ require_text "docs/current/00 - Onboarding/1. Setup Guide.md" "RECOVERY.md"
 python3 "$ROOT_DIR/tests/validate-template-docs.py"
 python3 "$ROOT_DIR/tests/validate-orchestration-contract.py"
 python3 "$ROOT_DIR/tests/validate-runtime-delegation-fixture.py"
+python3 "$ROOT_DIR/tests/validate-antigravity-conformance-fixture.py"
 
 echo "PASS: documentation guardrail validation"

@@ -32,7 +32,7 @@ Chào mừng bạn đến với **Knowledge Base** của dự án. Tài liệu �
   - Tạo folder cho feature thực trong đây. Copy reusable pack từ `docs/templates/feature-spec-template/` rồi đổi tên và điền đủ ba lớp tài liệu.
 
 - 🧰 **`docs/templates/`**
-  - Chứa reusable templates và sample; không phải tài liệu thực của dự án. Bắt đầu từ `feature-spec-template/`, `task-evidence-template.md`, `runtime-delegation-evidence-template.md` hoặc `examples/ai-support-agent/`.
+  - Chứa reusable templates và sample; không phải tài liệu thực của dự án. Bắt đầu từ `feature-spec-template/`, `3. Task Evidence Template.md`, `4. Runtime Delegation Evidence Template.md` hoặc `examples/ai-support-agent/`.
 
 ---
 *💡 Mẹo dùng Obsidian: Nhấn `Cmd/Ctrl + O` (Mac/Win) và gõ tên file để tìm kiếm & mở file nhanh chóng.*

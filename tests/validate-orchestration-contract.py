@@ -16,7 +16,7 @@ def main() -> None:
     policy = ROOT / "AGENTS.md"
     prompt = ROOT / "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md"
     runtime = ROOT / "docs/current/00 - Onboarding/5. Model Runtime Instructions.md"
-    contract = ROOT / "docs/templates/documentation-subagent-contract.md"
+    contract = ROOT / "docs/templates/2. Documentation Subagent Contract.md"
     matrix = ROOT / "V4_ACCEPTANCE_MATRIX.md"
 
     for text in [
@@ -36,7 +36,7 @@ def main() -> None:
         require_text(policy, text)
     for text in ["BẮT BUỘC tạo các sub-agent phù hợp", "không nói rằng đã tạo sub-agent"]:
         require_text(prompt, text)
-    for text in ["Codex-compatible host", "Claude Code", "Gemini CLI", "Qwen Code", "Gemma/custom harness"]:
+    for text in ["Codex-compatible host", "Claude Code", "Antigravity CLI", "Qwen Code", "Gemma/custom harness"]:
         require_text(runtime, text)
     for text in ["## Roles", "## Required handoff", "## Coordinator completion gate"]:
         require_text(contract, text)

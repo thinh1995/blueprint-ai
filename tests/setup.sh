@@ -50,7 +50,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((8 + core_doc_count))
+expected_file_count=$((9 + core_doc_count))
 
 (
     cd "$target"
@@ -77,7 +77,8 @@ done
 for sample_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md"; do
     [ -f "$target/docs/templates/examples/ai-support-agent/$sample_file" ] || fail "default install did not copy AI Agent sample: $sample_file"
 done
-[ -f "$target/docs/templates/task-evidence-template.md" ] || fail "default install did not copy task evidence template"
+[ -f "$target/docs/templates/3. Task Evidence Template.md" ] || fail "default install did not copy task evidence template"
+[ -d "$target/task-evidence" ] || fail "default install did not create root task-evidence directory"
 [ ! -e "$target/docs/current/05 - Product Features/_Feature Template" ] || fail "default install mixed feature template with project docs"
 [ ! -e "$target/docs/current/05 - Product Features/Example AI Support Agent" ] || fail "default install mixed sample with project docs"
 [ ! -e "$target/docs/internal" ] || fail "default install copied source-only internal docs"
@@ -88,6 +89,7 @@ fi
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/GEMINI.md" ] || fail "default install did not copy GEMINI.md"
 [ -f "$target/QWEN.md" ] || fail "default install did not copy QWEN.md"
+assert_file_contains "$target/GEMINI.md" "Antigravity CLI Project Instructions"
 assert_file_contains "$target/GEMINI.md" "AGENTS.md"
 assert_file_contains "$target/GEMINI.md" "@AGENTS.md"
 assert_file_contains "$target/QWEN.md" "AGENTS.md"
@@ -101,9 +103,9 @@ selected_models_target="$TEST_DIR/selected-models-target"
 mkdir -p "$selected_models_target"
 (
     cd "$selected_models_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini,qwen
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity,qwen
 ) > "$TEST_DIR/selected-models-install.txt"
-assert_file_contains "$TEST_DIR/selected-models-install.txt" "Selected model runtimes: gemini,qwen"
+assert_file_contains "$TEST_DIR/selected-models-install.txt" "Selected model runtimes: antigravity,qwen"
 [ -f "$selected_models_target/AGENTS.md" ] || fail "selected-model install did not copy canonical AGENTS.md"
 [ -f "$selected_models_target/GEMINI.md" ] || fail "selected-model install did not copy GEMINI.md"
 [ -f "$selected_models_target/QWEN.md" ] || fail "selected-model install did not copy QWEN.md"
@@ -113,7 +115,7 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["selected_models"] == ["gemini", "qwen"]
+assert manifest["selected_models"] == ["antigravity", "qwen"]
 assert "CLAUDE.md" not in manifest["managed_paths"]
 assert "CLAUDE.md" not in manifest["profiles"]["core"]
 assert "GEMINI.md" in manifest["profiles"]["core"]
@@ -143,12 +145,23 @@ invalid_models_target="$TEST_DIR/invalid-models-target"
 mkdir -p "$invalid_models_target"
 if (
     cd "$invalid_models_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini,invalid
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity,invalid
 ) > "$TEST_DIR/invalid-models.txt" 2>&1; then
     fail "setup accepted an invalid model selection"
 fi
 assert_file_contains "$TEST_DIR/invalid-models.txt" "Unknown model 'invalid'"
 [ ! -e "$invalid_models_target/AGENTS.md" ] || fail "invalid model selection wrote files"
+
+removed_model_target="$TEST_DIR/removed-model-target"
+mkdir -p "$removed_model_target"
+if (
+    cd "$removed_model_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+) > "$TEST_DIR/removed-model.txt" 2>&1; then
+    fail "setup accepted removed gemini model selection"
+fi
+assert_file_contains "$TEST_DIR/removed-model.txt" "Unknown model 'gemini'"
+[ ! -e "$removed_model_target/AGENTS.md" ] || fail "removed model selection wrote files"
 
 for empty_option in "--models=" "--models"; do
     empty_models_target="$TEST_DIR/empty-models-target-${empty_option//=/}"
@@ -203,15 +216,15 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["requested_models"] == ["gemini", "gemma"]
-assert manifest["managed_adapter_models"] == ["gemini"]
+assert manifest["requested_models"] == ["antigravity", "gemma"]
+assert manifest["managed_adapter_models"] == ["antigravity"]
 PY
 
 repeated_models_target="$TEST_DIR/repeated-models-target"
 mkdir -p "$repeated_models_target"
 if (
     cd "$repeated_models_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini --models qwen
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity --models qwen
 ) > "$TEST_DIR/repeated-models.txt" 2>&1; then
     fail "setup accepted --models more than once"
 fi
@@ -221,7 +234,7 @@ incremental_models_target="$TEST_DIR/incremental-models-target"
 mkdir -p "$incremental_models_target"
 (
     cd "$incremental_models_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini,qwen
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity,qwen
     bash "$TEMPLATE_DIR/setup.sh" --models claude
 ) > "$TEST_DIR/incremental-models.txt"
 [ -f "$incremental_models_target/CLAUDE.md" ] || fail "incremental install did not add CLAUDE.md"
@@ -230,8 +243,8 @@ import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["selected_models"] == ["claude", "gemini", "qwen"]
-assert manifest["managed_adapter_models"] == ["claude", "gemini", "qwen"]
+assert manifest["selected_models"] == ["claude", "antigravity", "qwen"]
+assert manifest["managed_adapter_models"] == ["claude", "antigravity", "qwen"]
 assert all(adapter in manifest["profiles"]["core"] for adapter in ["CLAUDE.md", "GEMINI.md", "QWEN.md"])
 PY
 
@@ -239,7 +252,7 @@ incremental_dry_run_target="$TEST_DIR/incremental-dry-run-target"
 mkdir -p "$incremental_dry_run_target"
 (
     cd "$incremental_dry_run_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
     bash "$TEMPLATE_DIR/setup.sh" --dry-run --models claude
 ) > "$TEST_DIR/incremental-dry-run.txt"
 assert_file_contains "$TEST_DIR/incremental-dry-run.txt" "UPDATE: template-manifest.json"
@@ -249,14 +262,14 @@ mkdir -p "$user_owned_adapter_target"
 printf 'user-owned adapter\n' > "$user_owned_adapter_target/GEMINI.md"
 (
     cd "$user_owned_adapter_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
 ) > "$TEST_DIR/user-owned-adapter.txt"
 python3 - "$user_owned_adapter_target/template-manifest.json" <<'PY'
 import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
-assert manifest["requested_models"] == ["gemini"]
+assert manifest["requested_models"] == ["antigravity"]
 assert manifest["managed_adapter_models"] == []
 assert "GEMINI.md" not in manifest["managed_paths"]
 PY
@@ -273,7 +286,7 @@ custom_manifest_target="$TEST_DIR/custom-manifest-target"
 mkdir -p "$custom_manifest_target"
 (
     cd "$custom_manifest_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
 ) > "$TEST_DIR/custom-manifest-first.txt"
 python3 - "$custom_manifest_target/template-manifest.json" <<'PY'
 import json
@@ -329,7 +342,7 @@ mkdir -p "$malformed_manifest_target"
 printf '{"template":"ai-agent-obsidian-project-template"}\n' > "$malformed_manifest_target/template-manifest.json"
 if (
     cd "$malformed_manifest_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
 ) > "$TEST_DIR/malformed-manifest.txt" 2>&1; then
     fail "setup accepted a malformed template-owned manifest"
 fi
@@ -337,7 +350,7 @@ assert_file_contains "$TEST_DIR/malformed-manifest.txt" "invalid managed_paths"
 [ ! -e "$malformed_manifest_target/AGENTS.md" ] || fail "malformed manifest allowed partial install"
 if (
     cd "$malformed_manifest_target"
-    bash "$TEMPLATE_DIR/setup.sh" --dry-run --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --models antigravity
 ) > "$TEST_DIR/malformed-manifest-dry-run.txt" 2>&1; then
     fail "dry-run accepted a malformed template-owned manifest"
 fi
@@ -347,7 +360,7 @@ mkdir -p "$unmanaged_manifest_target"
 printf '{"template":"user-owned","custom":true}\n' > "$unmanaged_manifest_target/template-manifest.json"
 (
     cd "$unmanaged_manifest_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
 ) > "$TEST_DIR/unmanaged-manifest.txt"
 assert_file_contains "$TEST_DIR/unmanaged-manifest.txt" "SKIP (unmanaged manifest)"
 assert_file_contains "$unmanaged_manifest_target/template-manifest.json" '"template":"user-owned"'
@@ -357,7 +370,7 @@ upgrade_manifest_target="$TEST_DIR/upgrade-manifest-target"
 mkdir -p "$upgrade_manifest_target"
 (
     cd "$upgrade_manifest_target"
-    bash "$TEMPLATE_DIR/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity
 ) > "$TEST_DIR/upgrade-manifest-first.txt"
 python3 - "$upgrade_manifest_target/template-manifest.json" <<'PY'
 import json
@@ -388,7 +401,7 @@ mkdir -p "$selected_adapter_directory_target/GEMINI.md"
 printf 'preserve this file\n' > "$selected_adapter_directory_target/AGENTS.md"
 if (
     cd "$selected_adapter_directory_target"
-    bash "$TEMPLATE_DIR/setup.sh" --force --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --force --models antigravity
 ) > "$TEST_DIR/selected-adapter-directory.txt" 2>&1; then
     fail "force install accepted a directory where a selected adapter file is required"
 fi
@@ -425,7 +438,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "task-evidence" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -461,7 +474,7 @@ PY
 
 metadata_template="$TEST_DIR/template-with-metadata"
 metadata_target="$TEST_DIR/metadata-target"
-mkdir -p "$metadata_template/tests" "$metadata_target"
+mkdir -p "$metadata_template/tests" "$metadata_template/task-evidence" "$metadata_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$metadata_template/$template_file"
 done
@@ -469,6 +482,7 @@ cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/val
 cp "$TEMPLATE_DIR/tests/docs_validation.py" "$metadata_template/tests/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/validate-project-docs.py"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
+touch "$metadata_template/task-evidence/.gitkeep"
 printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 (
     cd "$metadata_target"
@@ -478,7 +492,7 @@ printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 
 invalid_profile_template="$TEST_DIR/invalid-profile-template"
 invalid_profile_target="$TEST_DIR/invalid-profile-target"
-mkdir -p "$invalid_profile_template/tests" "$invalid_profile_target"
+mkdir -p "$invalid_profile_template/tests" "$invalid_profile_template/task-evidence" "$invalid_profile_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$invalid_profile_template/$template_file"
 done
@@ -486,6 +500,7 @@ cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$invalid_profile_template/te
 cp "$TEMPLATE_DIR/tests/docs_validation.py" "$invalid_profile_template/tests/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tests/validate-project-docs.py"
 cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
+touch "$invalid_profile_template/task-evidence/.gitkeep"
 python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
 import json
 import sys
@@ -536,7 +551,7 @@ import sys
 
 path = sys.argv[1]
 manifest = json.load(open(path))
-manifest["profiles"]["--with-advanced-docs"].append("docs/templates/agent-system-prompt-template.md")
+manifest["profiles"]["--with-advanced-docs"].append("docs/templates/1. Agent System Prompt Template.md")
 open(path, "w").write(json.dumps(manifest))
 PY
 if (
@@ -656,6 +671,31 @@ mkdir -p "$update_target"
     cd "$update_target"
     bash "$TEMPLATE_DIR/setup.sh" --with-advanced-docs --with-legacy-agents
 ) > "$TEST_DIR/update-first-install.txt"
+git -C "$update_target" init -q
+git -C "$update_target" config user.email "template-test@example.invalid"
+git -C "$update_target" config user.name "Template Test"
+git -C "$update_target" add .
+git -C "$update_target" commit -qm "initial template install"
+legacy_revision="$(git -C "$update_target" rev-parse HEAD)"
+legacy_checksum="$(shasum -a 256 "$update_target/AGENTS.md" | awk '{print $1}')"
+mkdir -p "$update_target/docs/current/00 - Onboarding/task-evidence"
+printf '%s\n' \
+    '---' \
+    'status: completed' \
+    'task_id: legacy-evidence' \
+    'recorded_at: 2026-07-21' \
+    'recorded_by: template test' \
+    "source_revision: $legacy_revision" \
+    'completed_at: 2026-07-21' \
+    'reviewer: template test' \
+    'environment: local/dev' \
+    "output_artifact_sha256: $legacy_checksum" \
+    'output_artifact_path: AGENTS.md' \
+    '---' \
+    '# Legacy evidence' \
+    '' \
+    '| AC-01 | Preserve legacy evidence | validator | Pass / 0 |' \
+    > "$update_target/docs/current/00 - Onboarding/task-evidence/legacy-evidence.md"
 printf 'custom managed rules\n' > "$update_target/AGENTS.md"
 printf 'custom managed documentation prompt\n' > "$update_target/docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md"
 printf 'custom managed advanced documentation\n' > "$update_target/docs/current/03 - API & Integrations/API Reference.md"
@@ -666,7 +706,9 @@ import sys
 
 path = sys.argv[1]
 manifest = json.load(open(path))
-manifest["version"] = "0.3.1"
+manifest["version"] = "0.4.2"
+for key in ["requested_models", "selected_models", "managed_adapter_models"]:
+    manifest[key] = ["gemini" if model == "antigravity" else model for model in manifest.get(key, [])]
 open(path, "w").write(json.dumps(manifest))
 PY
 (
@@ -693,6 +735,9 @@ assert_file_contains "$update_backup_dir/docs/current/00 - Onboarding/4. Whole-P
 assert_file_contains "$update_backup_dir/docs/current/03 - API & Integrations/API Reference.md" "custom managed advanced documentation"
 assert_file_contains "$update_backup_dir/.agents/AGENTS.md" "custom managed legacy rules"
 assert_file_contains "$update_backup_dir/RECOVERY.md" "mix of versions"
+python3 "$update_target/tools/validate-task-evidence.py" --require-completed > "$TEST_DIR/legacy-evidence-update.txt"
+assert_file_contains "$TEST_DIR/legacy-evidence-update.txt" "WARN: validating legacy evidence directory during migration"
+assert_file_contains "$TEST_DIR/legacy-evidence-update.txt" "PASS: task evidence and inventory validation"
 python3 - "$update_target/template-manifest.json" "$TEMPLATE_DIR/template-manifest.json" <<'PY'
 import json
 import sys
@@ -715,11 +760,73 @@ assert_file_contains "$TEST_DIR/update-without-manifest.txt" "--update requires"
 
 if (
     cd "$update_target"
-    bash "$TEMPLATE_DIR/setup.sh" --update --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --update --models antigravity
 ) > "$TEST_DIR/update-models.txt" 2>&1; then
     fail "update accepted an explicit model selection"
 fi
 assert_file_contains "$TEST_DIR/update-models.txt" "derives runtime adapters"
+
+v042_template_commit="1127e26bd04844d4a9a07d85223a62d5c434fbfd"
+v042_template_source="$TEST_DIR/v042-template-source"
+v040_template_commit="587c1c93dc073f6b05e485695bcf1e6ea85636b8"
+v040_template_source="$TEST_DIR/v040-template-source"
+legacy_template_rename_target="$TEST_DIR/legacy-template-rename-target"
+legacy_template_modified_target="$TEST_DIR/legacy-template-modified-target"
+legacy_v040_template_rename_target="$TEST_DIR/legacy-v040-template-rename-target"
+fresh_legacy_template_target="$TEST_DIR/fresh-legacy-template-target"
+mkdir -p "$v042_template_source" "$v040_template_source" "$legacy_template_rename_target" "$legacy_template_modified_target" "$legacy_v040_template_rename_target" "$fresh_legacy_template_target"
+git -C "$TEMPLATE_DIR" archive "$v042_template_commit" | tar -x -C "$v042_template_source"
+git -C "$TEMPLATE_DIR" archive "$v040_template_commit" | tar -x -C "$v040_template_source"
+(
+    cd "$legacy_template_rename_target"
+    bash "$v042_template_source/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/legacy-template-rename.txt"
+for old_template in \
+    "docs/templates/agent-system-prompt-template.md" \
+    "docs/templates/documentation-subagent-contract.md" \
+    "docs/templates/task-evidence-template.md" \
+    "docs/templates/runtime-delegation-evidence-template.md"; do
+    [ ! -e "$legacy_template_rename_target/$old_template" ] || fail "update retained unchanged renamed template: $old_template"
+done
+for new_template in \
+    "docs/templates/1. Agent System Prompt Template.md" \
+    "docs/templates/2. Documentation Subagent Contract.md" \
+    "docs/templates/3. Task Evidence Template.md" \
+    "docs/templates/4. Runtime Delegation Evidence Template.md"; do
+    [ -f "$legacy_template_rename_target/$new_template" ] || fail "update did not install renamed template: $new_template"
+done
+assert_file_contains "$TEST_DIR/legacy-template-rename.txt" "MIGRATED (renamed template)"
+(
+    cd "$legacy_template_modified_target"
+    bash "$v042_template_source/setup.sh" --models gemini
+) > "$TEST_DIR/legacy-template-modified-first-install.txt"
+printf 'user customization\n' >> "$legacy_template_modified_target/docs/templates/task-evidence-template.md"
+(
+    cd "$legacy_template_modified_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/legacy-template-modified.txt"
+[ -f "$legacy_template_modified_target/docs/templates/task-evidence-template.md" ] || fail "update removed user-modified legacy template"
+assert_file_contains "$legacy_template_modified_target/docs/templates/task-evidence-template.md" "user customization"
+assert_file_contains "$TEST_DIR/legacy-template-modified.txt" "SKIP (user-modified legacy template): docs/templates/task-evidence-template.md"
+(
+    cd "$legacy_v040_template_rename_target"
+    bash "$v040_template_source/setup.sh" --models gemini
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/legacy-v040-template-rename.txt"
+[ ! -e "$legacy_v040_template_rename_target/docs/templates/runtime-delegation-evidence-template.md" ] || fail "update retained unchanged v0.4.0 renamed runtime-delegation template"
+[ -f "$legacy_v040_template_rename_target/docs/templates/4. Runtime Delegation Evidence Template.md" ] || fail "update did not install v0.4.0 renamed runtime-delegation template"
+assert_file_contains "$TEST_DIR/legacy-v040-template-rename.txt" "MIGRATED (renamed template): docs/templates/runtime-delegation-evidence-template.md"
+(
+    cd "$fresh_legacy_template_target"
+    bash "$TEMPLATE_DIR/setup.sh"
+    cp "$v042_template_source/docs/templates/task-evidence-template.md" "docs/templates/task-evidence-template.md"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/fresh-legacy-template.txt"
+[ -f "$fresh_legacy_template_target/docs/templates/task-evidence-template.md" ] || fail "update removed a legacy-named file created after v0.4.3 installation"
+if grep -Fq "MIGRATED (renamed template): docs/templates/task-evidence-template.md" "$TEST_DIR/fresh-legacy-template.txt"; then
+    fail "update migrated a legacy-named file created after v0.4.3 installation"
+fi
 
 core_only_update_target="$TEST_DIR/core-only-update-target"
 mkdir -p "$core_only_update_target"

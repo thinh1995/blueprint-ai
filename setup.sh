@@ -43,7 +43,7 @@ Installs the AI agent rules and Obsidian starter vault into the current director
                         starter notes.
   --with-legacy-agents  Install .agents/AGENTS.md for tools that require it.
   --interactive  Show the model-selection menu even when stdin is not a TTY.
-  --models LIST  Comma-separated runtime adapters: claude,gemini,qwen,gemma,
+  --models LIST  Comma-separated runtime adapters: claude,antigravity,qwen,gemma,
                  or all. In an interactive terminal, omit this option to choose.
 EOF
 }
@@ -57,7 +57,7 @@ validate_models() {
         return 1
     fi
     if [ "$SELECTED_MODELS" = "all" ]; then
-        SELECTED_MODELS="claude,gemini,qwen,gemma"
+        SELECTED_MODELS="claude,antigravity,qwen,gemma"
         return 0
     fi
 
@@ -71,8 +71,8 @@ validate_models() {
     IFS=',' read -r -a SELECTED_MODEL_LIST <<< "$SELECTED_MODELS"
     for model in "${SELECTED_MODEL_LIST[@]}"; do
         case "$model" in
-            claude|gemini|qwen|gemma) ;;
-            *) echo "Error: Unknown model '$model'. Use claude, gemini, qwen, gemma, or all." >&2; return 1 ;;
+            claude|antigravity|qwen|gemma) ;;
+            *) echo "Error: Unknown model '$model'. Use claude, antigravity, qwen, gemma, or all." >&2; return 1 ;;
         esac
         if [[ "$seen_models" == *",$model,"* ]]; then
             echo "Error: Model '$model' was selected more than once." >&2
@@ -93,13 +93,13 @@ select_models_interactively() {
     if [ -t 0 ] || [ "$FORCE_INTERACTIVE" = true ]; then
         echo "Select model runtimes/guidance to configure (comma-separated; blank = all):"
         echo "  [1] Claude Code"
-        echo "  [2] Gemini CLI"
+        echo "  [2] Antigravity CLI"
         echo "  [3] Qwen Code"
         echo "  [4] Gemma / custom API harness (manual wiring)"
         printf "Selection [1,2,3,4]: "
         read -r selection
         case "$selection" in
-            ""|all|1,2,3,4) SELECTED_MODELS="claude,gemini,qwen,gemma" ;;
+            ""|all|1,2,3,4) SELECTED_MODELS="claude,antigravity,qwen,gemma" ;;
             *)
                 case "$selection" in
                     ,*|*,|*,,*)
@@ -113,7 +113,7 @@ select_models_interactively() {
                 for selection in "${selected_numbers[@]}"; do
                     case "$selection" in
                         1) SELECTED_MODELS+="${SELECTED_MODELS:+,}claude" ;;
-                        2) SELECTED_MODELS+="${SELECTED_MODELS:+,}gemini" ;;
+                        2) SELECTED_MODELS+="${SELECTED_MODELS:+,}antigravity" ;;
                         3) SELECTED_MODELS+="${SELECTED_MODELS:+,}qwen" ;;
                         4) SELECTED_MODELS+="${SELECTED_MODELS:+,}gemma" ;;
                         *) echo "Error: Selection must use 1, 2, 3, or 4." >&2; return 1 ;;
@@ -129,7 +129,7 @@ select_models_interactively() {
         esac
     else
         # Preserve a deterministic, backwards-compatible install in CI and scripts.
-        SELECTED_MODELS="claude,gemini,qwen,gemma"
+        SELECTED_MODELS="claude,antigravity,qwen,gemma"
     fi
 
     validate_models
@@ -230,13 +230,14 @@ def safe_path(path):
     return isinstance(path, str) and path and not path.startswith("/") and "\n" not in path and "\r" not in path and all(part not in {"", ".", ".."} for part in path.split("/"))
 if not isinstance(manifest.get("managed_paths"), list) or not all(safe_path(path) for path in manifest["managed_paths"]):
     raise ValueError("manifest has unsafe managed_paths")
-known = ["claude", "gemini", "qwen", "gemma"]
+known = ["claude", "antigravity", "qwen", "gemma", "gemini"]
 models = manifest.get("requested_models", manifest.get("selected_models"))
 if models is None:
-    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "gemini", "QWEN.md": "qwen"}
+    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "antigravity", "QWEN.md": "qwen"}
     models = [adapters[path] for path in manifest.get("profiles", {}).get("core", []) if path in adapters]
 if not isinstance(models, list) or any(model not in known for model in models):
     raise ValueError("manifest has invalid runtime selection")
+models = ["antigravity" if model == "gemini" else model for model in models]
 profiles = manifest.get("profiles")
 if not isinstance(profiles, dict):
     raise ValueError("manifest has invalid profiles")
@@ -246,10 +247,11 @@ advanced = bool(profiles.get("--with-advanced-docs"))
 legacy = ".agents/AGENTS.md" in profiles.get("--with-legacy-agents", [])
 managed = manifest.get("managed_adapter_models")
 if managed is None:
-    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "gemini", "QWEN.md": "qwen"}
+    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "antigravity", "QWEN.md": "qwen"}
     managed = [adapters[path] for path in manifest.get("managed_paths", []) if path in adapters]
 if not isinstance(managed, list) or any(model not in known for model in managed):
     raise ValueError("manifest has invalid managed_adapter_models")
+managed = ["antigravity" if model == "gemini" else model for model in managed]
 managed_profiles = manifest.get("managed_profiles")
 if managed_profiles is None:
     managed_profiles = ["core"]
@@ -325,14 +327,16 @@ if any(not isinstance(paths, list) or not all(safe_path(path) for path in paths)
     raise ValueError("existing manifest has unsafe profile paths")
 
 requested = sys.argv[2].split(",")
-known = ["claude", "gemini", "qwen", "gemma"]
+known = ["claude", "antigravity", "qwen", "gemma", "gemini"]
 existing = manifest.get("requested_models", manifest.get("selected_models"))
 if existing is None:
-    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "gemini", "QWEN.md": "qwen"}
+    adapters = {"CLAUDE.md": "claude", "GEMINI.md": "antigravity", "QWEN.md": "qwen"}
     existing = [adapters[path] for path in manifest.get("profiles", {}).get("core", []) if path in adapters]
 
 if not isinstance(existing, list) or any(model not in known for model in existing):
     raise ValueError("existing manifest has invalid selected_models")
+
+existing = ["antigravity" if model == "gemini" else model for model in existing]
 
 combined = [model for model in known if model in existing or model in requested]
 print(",".join(combined))
@@ -448,7 +452,7 @@ collect_managed_adapter_models() {
     local adapter
 
     MANAGED_ADAPTER_MODELS=""
-    for mapping in "claude:CLAUDE.md" "gemini:GEMINI.md" "qwen:QWEN.md"; do
+    for mapping in "claude:CLAUDE.md" "antigravity:GEMINI.md" "qwen:QWEN.md"; do
         model="${mapping%%:*}"
         adapter="${mapping#*:}"
         if [ -f "$DEST_DIR/$adapter" ] && [ ! -L "$DEST_DIR/$adapter" ] && cmp -s "$SRC_DIR/$adapter" "$DEST_DIR/$adapter"; then
@@ -497,7 +501,7 @@ with_legacy = sys.argv[7] == "true"
 validator_bundle_managed = sys.argv[8] == "true"
 adapter_models = {
     "CLAUDE.md": "claude",
-    "GEMINI.md": "gemini",
+    "GEMINI.md": "antigravity",
     "QWEN.md": "qwen",
 }
 
@@ -657,6 +661,85 @@ find_template_docs() {
     find "$SRC_DIR/docs" -path "$SRC_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print0
 }
 
+legacy_template_migration_allowed() {
+    local old_relative_path="$1"
+
+    python3 - "$DEST_DIR/template-manifest.json" "$old_relative_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+legacy_path = sys.argv[2]
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    version = manifest.get("version")
+    paths = [*manifest.get("managed_paths", []), *manifest.get("profiles", {}).get("core", [])]
+except (OSError, ValueError, TypeError):
+    raise SystemExit(1)
+
+affected_versions = {"0.4.0", "0.4.1", "0.4.2"}
+is_managed = any(isinstance(path, str) and (path == legacy_path or legacy_path.startswith(path + "/")) for path in paths)
+raise SystemExit(0 if version in affected_versions and is_managed else 1)
+PY
+}
+
+migrate_renamed_template_files() {
+    local mapping
+    local old_relative_path
+    local new_relative_path
+    local expected_sha256
+    local old_path
+
+    [ "$UPDATE" = true ] || return 0
+
+    # Renamed template files were template-owned in v0.4.0–v0.4.2. Only those
+    # manifests are eligible, and an old filename is removed only when its
+    # contents match a known release; preserve any user edit or symlink.
+    for mapping in \
+        "docs/templates/agent-system-prompt-template.md|docs/templates/1. Agent System Prompt Template.md|aa6e9c623f27ad7c77d0b9b053a9c885c837942175fdd88d8ee4c9257b7c5a6e" \
+        "docs/templates/documentation-subagent-contract.md|docs/templates/2. Documentation Subagent Contract.md|57d3c4b586c86429bc852db1c35c40e13f8a6fd2ca4f33dd6225d20411b76430" \
+        "docs/templates/task-evidence-template.md|docs/templates/3. Task Evidence Template.md|9dda6623fddc2eeb07c70e756c29e7ce2a8b26765722260625e34a573bce23a1" \
+        "docs/templates/runtime-delegation-evidence-template.md|docs/templates/4. Runtime Delegation Evidence Template.md|3d8960ff20f3b27c7311e61942552112aadf5ebdc25910b11bc92927af6f62e4,6fb83edc810b6e2bc70a089e84277f8b35966598e9ed986ab00d012332e01b25"; do
+        IFS='|' read -r old_relative_path new_relative_path expected_sha256 <<< "$mapping"
+        old_path="$DEST_DIR/$old_relative_path"
+
+        [ -e "$old_path" ] || [ -L "$old_path" ] || continue
+        legacy_template_migration_allowed "$old_relative_path" || continue
+        if [ -L "$old_path" ]; then
+            echo "SKIP (symlink legacy template): $old_relative_path"
+            continue
+        fi
+        if [ ! -f "$old_path" ]; then
+            echo "SKIP (non-file legacy template): $old_relative_path"
+            continue
+        fi
+        if ! python3 - "$old_path" "$expected_sha256" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected = sys.argv[2]
+raise SystemExit(0 if hashlib.sha256(path.read_bytes()).hexdigest() in expected.split(",") else 1)
+PY
+        then
+            echo "SKIP (user-modified legacy template): $old_relative_path"
+            continue
+        fi
+
+        if [ "$DRY_RUN" = true ]; then
+            echo "MIGRATE (remove renamed template): $old_relative_path -> $new_relative_path"
+            PLANNED_COUNT=$((PLANNED_COUNT + 1))
+            continue
+        fi
+
+        backup_existing_file "$old_relative_path"
+        rm -f "$old_path"
+        echo "MIGRATED (renamed template): $old_relative_path -> $new_relative_path"
+    done
+}
+
 check_destination_path() {
     local relative_path="$1"
     local path_part
@@ -718,7 +801,7 @@ preflight_destinations() {
     prepare_manifest_models || failed=true
     prepare_validator_bundle
 
-    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py"; do
+    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "task-evidence/.gitkeep"; do
         check_destination_path "$relative_path" || failed=true
     done
     if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
@@ -729,7 +812,7 @@ preflight_destinations() {
     if adapter_selected_for_copy claude; then
         check_destination_path "CLAUDE.md" || failed=true
     fi
-    if adapter_selected_for_copy gemini; then
+    if adapter_selected_for_copy antigravity; then
         check_destination_path "GEMINI.md" || failed=true
     fi
     if adapter_selected_for_copy qwen; then
@@ -775,9 +858,9 @@ if adapter_selected_for_copy claude; then
     copy_file "$SRC_DIR/CLAUDE.md" "CLAUDE.md"
 fi
 
-# Gemini CLI and Qwen Code load their native project context files. Both
-# adapters point to AGENTS.md so workspace policy has one canonical source.
-if adapter_selected_for_copy gemini; then
+# Antigravity CLI preserves Gemini-compatible `GEMINI.md` discovery; Qwen Code
+# has its own native file. Both adapters point to AGENTS.md as the canonical source.
+if adapter_selected_for_copy antigravity; then
     copy_file "$SRC_DIR/GEMINI.md" "GEMINI.md"
 fi
 if adapter_selected_for_copy qwen; then
@@ -785,6 +868,7 @@ if adapter_selected_for_copy qwen; then
 fi
 
 copy_file "$SRC_DIR/tests/validate-task-evidence.py" "tools/validate-task-evidence.py"
+copy_file "$SRC_DIR/task-evidence/.gitkeep" "task-evidence/.gitkeep"
 if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
     copy_file "$SRC_DIR/tests/docs_validation.py" "tools/docs_validation.py"
     copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
@@ -805,6 +889,8 @@ while IFS= read -r -d '' source_file; do
     copy_file "$source_file" "$relative_path"
 done < <(find_template_docs)
 
+migrate_renamed_template_files
+
 # Publish the manifest only after every selected file has been copied.
 copy_selected_manifest
 
@@ -819,8 +905,8 @@ fi
 echo ""
 echo "Next steps:"
 echo "1. Open this project folder in Obsidian as a Vault."
-echo "2. Confirm your selected runtime loads its project instructions; Gemma/custom API harnesses must inject docs/templates/agent-system-prompt-template.md."
+echo "2. Confirm your selected runtime loads its project instructions; Gemma/custom API harnesses must inject docs/templates/1. Agent System Prompt Template.md."
 if model_selected gemma; then
-    echo "3. Gemma/custom API selected: no repository filename is auto-loaded. Configure the host to inject docs/templates/agent-system-prompt-template.md before enabling write tools."
+    echo "3. Gemma/custom API selected: no repository filename is auto-loaded. Configure the host to inject docs/templates/1. Agent System Prompt Template.md before enabling write tools."
 fi
 echo "----------------------------------------"

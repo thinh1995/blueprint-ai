@@ -11,13 +11,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
-parser.add_argument("--evidence-dir", default="docs/current/00 - Onboarding/task-evidence")
+parser.add_argument("--evidence-dir", help="Validate only this evidence directory.")
 parser.add_argument("--require-completed", action="store_true")
 args = parser.parse_args()
-EVIDENCE_DIR = ROOT / args.evidence_dir
+DEFAULT_EVIDENCE_DIR = ROOT / "task-evidence"
+LEGACY_EVIDENCE_DIR = ROOT / "docs/current/00 - Onboarding/task-evidence"
+if args.evidence_dir:
+    EVIDENCE_DIRS = [ROOT / args.evidence_dir]
+else:
+    EVIDENCE_DIRS = [DEFAULT_EVIDENCE_DIR]
+    if LEGACY_EVIDENCE_DIR.is_dir():
+        EVIDENCE_DIRS.append(LEGACY_EVIDENCE_DIR)
 CORRECTIONS_PATH = ROOT / "docs/internal/task-evidence/evidence-corrections.json"
-if not EVIDENCE_DIR.is_dir() and args.require_completed:
-    raise ValueError(f"evidence directory does not exist: {EVIDENCE_DIR}")
+if not any(path.is_dir() for path in EVIDENCE_DIRS) and args.require_completed:
+    raise ValueError(f"evidence directory does not exist: {EVIDENCE_DIRS[0]}")
 
 
 def frontmatter(text: str, path: Path) -> dict[str, str]:
@@ -42,47 +49,48 @@ completed_records = 0
 corrections = json.loads(CORRECTIONS_PATH.read_text()) if CORRECTIONS_PATH.is_file() else {"schema_version": 1, "corrections": {}}
 if corrections.get("schema_version") != 1 or not isinstance(corrections.get("corrections"), dict):
     raise ValueError("evidence corrections file is invalid")
-for path in (EVIDENCE_DIR.glob("*.md") if EVIDENCE_DIR.is_dir() else []):
-    if path.name.startswith("_"):
-        continue
-    text = path.read_text()
-    data = frontmatter(text, path)
-    if data.get("status") != "completed":
-        continue
-    completed_records += 1
-    require(data, ["task_id", "recorded_at", "recorded_by", "source_revision", "completed_at", "reviewer", "environment", "output_artifact_sha256", "output_artifact_path"], path)
-    if not re.search(r"\| AC-[^|]+\|\s*[^|\s].*\|\s*[^|\s].*\|\s*[^|\s].*\|", text):
-        raise ValueError(f"{path}: completed task needs a non-empty AC validation row")
-    artifact_path = Path(data["output_artifact_path"])
-    if artifact_path.is_absolute() or not (ROOT / artifact_path).resolve().is_relative_to(ROOT):
-        raise ValueError(f"{path}: output artifact path escapes repository root")
-    artifact = ROOT / artifact_path
-    if not re.fullmatch(r"[0-9a-f]{40}", data["source_revision"]):
-        raise ValueError(f"{path}: source revision must be a full lowercase Git SHA")
-    correction_key = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
-    correction = corrections["corrections"].get(correction_key, {}) if correction_key else {}
-    revision = correction.get("source_revision", data["source_revision"])
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise ValueError(f"{path}: correction source revision must be a full lowercase Git SHA")
-    try:
-        subprocess.check_call(
-            ["git", "rev-parse", "--verify", f"{revision}^{{commit}}"],
-            cwd=ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        raise ValueError(f"{path}: source revision is unavailable: {data['source_revision']}")
-    source_spec = f"{revision}:{artifact_path}"
-    try:
-        artifact_bytes = subprocess.check_output(
-            ["git", "show", source_spec], cwd=ROOT, stderr=subprocess.DEVNULL
-        )
-    except (OSError, subprocess.CalledProcessError):
-        raise ValueError(f"{path}: output artifact is unavailable at source revision: {source_spec}")
-    digest = hashlib.sha256(artifact_bytes).hexdigest()
-    if digest != data["output_artifact_sha256"].lower():
-        raise ValueError(f"{path}: output artifact checksum does not match")
+for evidence_dir in EVIDENCE_DIRS:
+    for path in (evidence_dir.glob("*.md") if evidence_dir.is_dir() else []):
+        if path.name.startswith("_"):
+            continue
+        text = path.read_text()
+        data = frontmatter(text, path)
+        if data.get("status") != "completed":
+            continue
+        completed_records += 1
+        require(data, ["task_id", "recorded_at", "recorded_by", "source_revision", "completed_at", "reviewer", "environment", "output_artifact_sha256", "output_artifact_path"], path)
+        if not re.search(r"\| AC-[^|]+\|\s*[^|\s].*\|\s*[^|\s].*\|\s*[^|\s].*\|", text):
+            raise ValueError(f"{path}: completed task needs a non-empty AC validation row")
+        artifact_path = Path(data["output_artifact_path"])
+        if artifact_path.is_absolute() or not (ROOT / artifact_path).resolve().is_relative_to(ROOT):
+            raise ValueError(f"{path}: output artifact path escapes repository root")
+        artifact = ROOT / artifact_path
+        if not re.fullmatch(r"[0-9a-f]{40}", data["source_revision"]):
+            raise ValueError(f"{path}: source revision must be a full lowercase Git SHA")
+        correction_key = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
+        correction = corrections["corrections"].get(correction_key, {}) if correction_key else {}
+        revision = correction.get("source_revision", data["source_revision"])
+        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError(f"{path}: correction source revision must be a full lowercase Git SHA")
+        try:
+            subprocess.check_call(
+                ["git", "rev-parse", "--verify", f"{revision}^{{commit}}"],
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            raise ValueError(f"{path}: source revision is unavailable: {data['source_revision']}")
+        source_spec = f"{revision}:{artifact_path}"
+        try:
+            artifact_bytes = subprocess.check_output(
+                ["git", "show", source_spec], cwd=ROOT, stderr=subprocess.DEVNULL
+            )
+        except (OSError, subprocess.CalledProcessError):
+            raise ValueError(f"{path}: output artifact is unavailable at source revision: {source_spec}")
+        digest = hashlib.sha256(artifact_bytes).hexdigest()
+        if digest != data["output_artifact_sha256"].lower():
+            raise ValueError(f"{path}: output artifact checksum does not match")
 
 if args.require_completed and completed_records == 0:
     raise ValueError("no completed task evidence record found")
@@ -98,4 +106,6 @@ if data.get("verified") == "true":
     if expiry < dt.date.today():
         raise ValueError(f"{inventory}: verified inventory is expired")
 
+if not args.evidence_dir and LEGACY_EVIDENCE_DIR.is_dir():
+    print(f"WARN: validating legacy evidence directory during migration: {LEGACY_EVIDENCE_DIR.relative_to(ROOT)}")
 print("PASS: task evidence and inventory validation")

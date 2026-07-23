@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.4.3`. See [V4.3 Acceptance Matrix](V4_3_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.4.4`. See [V4.4 Acceptance Matrix](V4_4_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
 1. **Rule cho AI Agent (`AGENTS.md` + runtime adapters)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. Agent chỉ chọn năng lực có sẵn trên host; delegation được dùng khi phù hợp với công việc độc lập hoặc rủi ro cao, với ownership, evidence và handoff rõ ràng. Khi khởi tạo/refresh docs, host có delegation phải tạo sub-agent chuyên biệt trước khi ghi; host không có capability phải ghi fallback tuần tự. `CLAUDE.md`, `GEMINI.md` (adapter tương thích của Antigravity CLI), và `QWEN.md` là các entrypoint ngắn, cùng trỏ về `AGENTS.md` là nguồn rule canon. Với Gemma/raw API, cấu hình host phải inject [system prompt template](docs/templates/1. Agent System Prompt Template.md); repository file không tự trở thành system prompt.
@@ -51,6 +51,7 @@ From the project root, inspect the update before writing:
 
 ```bash
 bash /path/to/ai-project-template/setup.sh --dry-run --update
+bash /path/to/ai-project-template/setup.sh --dry-run --update --migration-plan ai-template-migration-plan.md
 bash /path/to/ai-project-template/setup.sh --update
 ```
 
@@ -58,6 +59,17 @@ bash /path/to/ai-project-template/setup.sh --update
 - The installer derives installed profiles and template-managed adapters, preserves user-owned adapters, and creates `.ai-template-backup.*` with `RECOVERY.md` before replacing each managed file.
 - When updating from v0.4.0–v0.4.2, unchanged root template files with the former unnumbered names are backed up and removed after their numbered replacements are installed. User-modified files and symlinks are preserved with an explicit warning.
 - A legacy manifest without `managed_profiles` needs explicit `--with-advanced-docs` and/or `--with-legacy-agents` when those profiles should be upgraded. Updates are per-file, not transactional; use `RECOVERY.md` if interrupted.
+- Add `--migration-plan report.md` (or `.json`) to the dry run for a shareable list of files to replace, preserve, or resolve manually, plus backup and rollback guidance. It refuses to overwrite an existing report.
+
+## Environment readiness
+
+After setup, run this read-only check from the downstream project root:
+
+```bash
+bash /path/to/ai-project-template/setup.sh --doctor
+```
+
+It checks Bash/Python, canonical `AGENTS.md`, the selected runtime agents and their adapters, the managed manifest, and local Markdown documentation links. Each failed check includes a remediation; Gemma/custom harnesses remain `NOT READY` until their host-level system-prompt injection is verified outside the repository.
 
 ## Kiểm tra template
 

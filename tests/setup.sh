@@ -721,6 +721,30 @@ assert_file_contains "$TEST_DIR/update-dry-run.txt" "UPDATE (backup): AGENTS.md"
 assert_file_contains "$update_target/AGENTS.md" "custom managed rules"
 (
     cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan migration-plan.json
+) > "$TEST_DIR/update-plan.txt"
+[ -f "$update_target/migration-plan.json" ] || fail "migration planner did not write JSON output"
+python3 - "$update_target/migration-plan.json" <<'PY'
+import json
+import sys
+
+plan = json.load(open(sys.argv[1]))
+assert plan["mode"] == "dry-run-update"
+assert any(item["path"] == "AGENTS.md" for item in plan["will_replace"])
+assert ".ai-template-backup.XXXXXX" in plan["backup_directory_pattern"]
+assert "RECOVERY.md" in plan["rollback"]
+PY
+assert_file_contains "$TEST_DIR/update-plan.txt" "Migration plan: migration-plan.json"
+assert_file_contains "$TEST_DIR/update-plan.txt" "no template-managed files will be changed"
+(
+    cd "$update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan migration-plan.md
+) > "$TEST_DIR/update-plan-markdown.txt"
+assert_file_contains "$update_target/migration-plan.md" "# AI Template Migration Plan"
+assert_file_contains "$update_target/migration-plan.md" "## Will replace"
+assert_file_contains "$update_target/migration-plan.md" "RECOVERY.md"
+(
+    cd "$update_target"
     bash "$TEMPLATE_DIR/setup.sh" --update
 ) > "$TEST_DIR/update.txt"
 assert_file_contains "$TEST_DIR/update.txt" "BACKUP:"
@@ -746,6 +770,83 @@ manifest = json.load(open(sys.argv[1]))
 template = json.load(open(sys.argv[2]))
 assert manifest["version"] == template["version"]
 PY
+
+if (
+    cd "$gemma_models_target"
+    bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-gemma.txt" 2>&1; then
+    fail "doctor accepted a Gemma runtime without host-level injection verification"
+fi
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "PASS Bash:"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "PASS Python:"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "PASS policy:"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "PASS manifest: template-owned"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "FAIL runtime gemma: host-level system-prompt injection cannot be verified"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "PASS docs links:"
+assert_file_contains "$TEST_DIR/doctor-gemma.txt" "Doctor result: NOT READY"
+
+doctor_unmanaged_adapter_target="$TEST_DIR/doctor-unmanaged-adapter"
+mkdir -p "$doctor_unmanaged_adapter_target"
+(
+    cd "$doctor_unmanaged_adapter_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemma >/dev/null
+)
+python3 - "$doctor_unmanaged_adapter_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["requested_models"] = ["claude"]
+manifest["selected_models"] = ["claude"]
+manifest["managed_adapter_models"] = []
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$doctor_unmanaged_adapter_target"
+    bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-unmanaged-adapter.txt" 2>&1; then
+    fail "doctor accepted a selected runtime with no user-owned adapter"
+fi
+assert_file_contains "$TEST_DIR/doctor-unmanaged-adapter.txt" "WARN runtime claude: adapter is user-owned"
+assert_file_contains "$TEST_DIR/doctor-unmanaged-adapter.txt" "FAIL runtime claude: missing regular CLAUDE.md"
+assert_file_contains "$TEST_DIR/doctor-unmanaged-adapter.txt" "Doctor result: NOT READY"
+
+doctor_unsafe_manifest_target="$TEST_DIR/doctor-unsafe-manifest"
+mkdir -p "$doctor_unsafe_manifest_target"
+(
+    cd "$doctor_unsafe_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models gemma >/dev/null
+)
+python3 - "$doctor_unsafe_manifest_target/template-manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["managed_paths"].append("../outside")
+open(path, "w").write(json.dumps(manifest))
+PY
+if (
+    cd "$doctor_unsafe_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-unsafe-manifest.txt" 2>&1; then
+    fail "doctor accepted an unsafe manifest"
+fi
+assert_file_contains "$TEST_DIR/doctor-unsafe-manifest.txt" "FAIL manifest: invalid template-owned manifest"
+assert_file_contains "$TEST_DIR/doctor-unsafe-manifest.txt" "Doctor result: NOT READY"
+
+doctor_missing_manifest_target="$TEST_DIR/doctor-missing-manifest"
+mkdir -p "$doctor_missing_manifest_target"
+if (
+    cd "$doctor_missing_manifest_target"
+    bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-missing-manifest.txt" 2>&1; then
+    fail "doctor accepted a project without a manifest"
+fi
+assert_file_contains "$TEST_DIR/doctor-missing-manifest.txt" "FAIL manifest:"
+assert_file_contains "$TEST_DIR/doctor-missing-manifest.txt" "Remediation:"
+assert_file_contains "$TEST_DIR/doctor-missing-manifest.txt" "Doctor result: NOT READY"
 
 update_without_manifest_target="$TEST_DIR/update-without-manifest-target"
 mkdir -p "$update_without_manifest_target"
@@ -802,6 +903,20 @@ assert_file_contains "$TEST_DIR/legacy-template-rename.txt" "MIGRATED (renamed t
     bash "$v042_template_source/setup.sh" --models gemini
 ) > "$TEST_DIR/legacy-template-modified-first-install.txt"
 printf 'user customization\n' >> "$legacy_template_modified_target/docs/templates/task-evidence-template.md"
+(
+    cd "$legacy_template_modified_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan legacy-migration-plan.json
+) > "$TEST_DIR/legacy-template-modified-plan.txt"
+python3 - "$legacy_template_modified_target/legacy-migration-plan.json" <<'PY'
+import json
+import sys
+
+plan = json.load(open(sys.argv[1]))
+assert any(
+    item["path"] == "docs/templates/task-evidence-template.md"
+    for item in plan["will_preserve"]
+)
+PY
 (
     cd "$legacy_template_modified_target"
     bash "$TEMPLATE_DIR/setup.sh" --update

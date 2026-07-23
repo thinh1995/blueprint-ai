@@ -8,6 +8,8 @@ DRY_RUN=false
 WITH_ADVANCED_DOCS=false
 WITH_LEGACY_AGENTS=false
 UPDATE=false
+DOCTOR=false
+MIGRATION_PLAN=""
 SELECTED_MODELS=""
 MODELS_OPTION_PROVIDED=false
 FORCE_INTERACTIVE=false
@@ -21,6 +23,7 @@ VALIDATOR_BUNDLE_MANAGED=true
 GENERATED_MANIFEST=""
 ACTIVE_TEMP_FILES=()
 BACKUP_DIR=""
+PLAN_EVENTS_FILE=""
 INSTALLED_COUNT=0
 SKIPPED_COUNT=0
 PLANNED_COUNT=0
@@ -30,7 +33,7 @@ BLOCKED_PATHS=()
 
 usage() {
     cat <<'EOF'
-Usage: setup.sh [--dry-run] [--force] [--update] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--models LIST]
+Usage: setup.sh [--dry-run] [--force] [--update] [--doctor] [--migration-plan PATH] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--models LIST]
 
 Installs the AI agent rules and Obsidian starter vault into the current directory.
 
@@ -39,6 +42,11 @@ Installs the AI agent rules and Obsidian starter vault into the current director
              files are preserved. Symlinks are never overwritten.
   --update   Upgrade a project with a template-owned manifest. Existing managed
              files are backed up, then replaced by this template version.
+  --doctor   Read-only readiness check for Bash/Python, installed runtime
+             adapters, manifest ownership, and local Markdown documentation links.
+  --migration-plan PATH  With --dry-run --update, write a Markdown (.md) or JSON
+             report describing planned replacements, preserved/manual items, and
+             backup/rollback guidance. Refuses to overwrite an existing file.
   --with-advanced-docs  Install API, backend, infrastructure, and user-manual
                         starter notes.
   --with-legacy-agents  Install .agents/AGENTS.md for tools that require it.
@@ -46,6 +54,147 @@ Installs the AI agent rules and Obsidian starter vault into the current director
   --models LIST  Comma-separated runtime adapters: claude,antigravity,qwen,gemma,
                  or all. In an interactive terminal, omit this option to choose.
 EOF
+}
+
+run_doctor() {
+    local doctor_status=0
+    local runtime
+    local command_name
+
+    echo "AI template doctor: $DEST_DIR"
+    if [ -n "${BASH_VERSION:-}" ]; then
+        echo "PASS Bash: $BASH_VERSION"
+    else
+        echo "FAIL Bash: setup.sh must be run by Bash. Remediation: run 'bash /path/to/setup.sh --doctor'." >&2
+        doctor_status=1
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        echo "PASS Python: $(python3 --version 2>&1)"
+    else
+        echo "FAIL Python: Python 3 is unavailable. Remediation: install Python 3 and rerun --doctor." >&2
+        return 1
+    fi
+    if [ ! -f "$DEST_DIR/AGENTS.md" ] || [ -L "$DEST_DIR/AGENTS.md" ]; then
+        echo "FAIL policy: a regular AGENTS.md is required. Remediation: restore the canonical policy with setup.sh --update before enabling an agent runtime." >&2
+        doctor_status=1
+    else
+        echo "PASS policy: AGENTS.md is a regular canonical policy file"
+    fi
+    if [ ! -f "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
+        echo "FAIL manifest: a regular template-manifest.json is required. Remediation: run a normal setup, or restore the managed manifest before --update." >&2
+        doctor_status=1
+    else
+        local manifest_output
+        if ! manifest_output="$(python3 - "$DEST_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+manifest = json.loads((root / "template-manifest.json").read_text(encoding="utf-8"))
+if manifest.get("template") != "ai-agent-obsidian-project-template":
+    raise ValueError("manifest is not owned by ai-agent-obsidian-project-template")
+def safe_path(path):
+    return isinstance(path, str) and path and not path.startswith("/") and "\n" not in path and "\r" not in path and all(part not in {"", ".", ".."} for part in path.split("/"))
+if not isinstance(manifest.get("managed_paths"), list) or not all(safe_path(path) for path in manifest["managed_paths"]):
+    raise ValueError("manifest has unsafe managed_paths")
+profiles = manifest.get("profiles")
+if not isinstance(profiles, dict) or any(not isinstance(paths, list) or not all(safe_path(path) for path in paths) for paths in profiles.values()):
+    raise ValueError("manifest has unsafe profile paths")
+known = {"claude", "antigravity", "qwen", "gemma", "gemini"}
+models = manifest.get("requested_models", manifest.get("selected_models"))
+if not isinstance(models, list) or any(model not in known for model in models):
+    raise ValueError("manifest has no valid selected runtime list")
+managed = manifest.get("managed_adapter_models", [])
+if not isinstance(managed, list) or any(model not in known for model in managed):
+    raise ValueError("manifest has invalid managed_adapter_models")
+managed_profiles = manifest.get("managed_profiles", ["core"])
+if not isinstance(managed_profiles, list) or any(profile not in {"core", "--with-advanced-docs", "--with-legacy-agents"} for profile in managed_profiles):
+    raise ValueError("manifest has invalid managed_profiles")
+print("PASS manifest: template-owned; version=" + str(manifest.get("version", "unknown")))
+for model in models:
+    print("RUNTIME|" + model + "|" + ("managed" if model in managed else "unmanaged"))
+PY
+)"; then
+            echo "FAIL manifest: invalid template-owned manifest. Remediation: inspect template-manifest.json; do not run --update until it is repaired." >&2
+            doctor_status=1
+        else
+            while IFS= read -r line; do
+                case "$line" in
+                    RUNTIME\|*)
+                        IFS='|' read -r _ runtime managed_state <<< "$line"
+                        case "$runtime" in
+                            claude) command_name="claude"; adapter="CLAUDE.md" ;;
+                            antigravity|gemini) command_name="agy"; adapter="GEMINI.md" ;;
+                            qwen) command_name="qwen"; adapter="QWEN.md" ;;
+                            gemma) command_name=""; adapter="" ;;
+                            *) echo "FAIL runtime: unknown selected runtime '$runtime'. Remediation: repair the manifest." >&2; doctor_status=1; continue ;;
+                        esac
+                        if [ "$runtime" = gemma ]; then
+                            if [ ! -f "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ] || [ -L "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ]; then
+                                echo "FAIL runtime gemma: the required system-prompt template is missing. Remediation: restore docs/templates/1. Agent System Prompt Template.md with setup.sh --update." >&2
+                            else
+                                echo "FAIL runtime gemma: host-level system-prompt injection cannot be verified from this repository. Remediation: verify the host injects docs/templates/1. Agent System Prompt Template.md before enabling write tools." >&2
+                            fi
+                            doctor_status=1
+                            continue
+                        fi
+                        if [ "$managed_state" != managed ]; then
+                            echo "WARN runtime $runtime: adapter is user-owned or not managed; preserving it while checking its minimum contract."
+                        fi
+                        if [ ! -f "$DEST_DIR/$adapter" ] || [ -L "$DEST_DIR/$adapter" ]; then
+                            echo "FAIL runtime $runtime: missing regular $adapter. Remediation: restore the managed adapter with setup.sh --update or add a regular user-owned adapter that delegates to AGENTS.md." >&2
+                            doctor_status=1
+                        elif ! grep -Fq "AGENTS.md" "$DEST_DIR/$adapter"; then
+                            echo "FAIL runtime $runtime: $adapter does not delegate to AGENTS.md. Remediation: restore the managed adapter or review the custom adapter." >&2
+                            doctor_status=1
+                        elif ! command -v "$command_name" >/dev/null 2>&1; then
+                            echo "FAIL runtime $runtime: command '$command_name' is unavailable. Remediation: install/enable that runtime or remove it from the selected runtime configuration." >&2
+                            doctor_status=1
+                        else
+                            echo "PASS runtime $runtime: $adapter and '$command_name' are available"
+                        fi
+                        ;;
+                    *) echo "$line" ;;
+                esac
+            done <<< "$manifest_output"
+        fi
+    fi
+    if python3 - "$DEST_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+root = Path(sys.argv[1]).resolve()
+missing = []
+for note in root.rglob("*.md"):
+    if ".git" in note.parts:
+        continue
+    for target in re.findall(r"(?<!!)(?:!?)\[[^]]*\]\(([^)]+)\)", note.read_text(encoding="utf-8", errors="replace")):
+        target = target.split("#", 1)[0].strip().strip("<>")
+        if not target or "://" in target or target.startswith(("mailto:", "file:")):
+            continue
+        candidate = (note.parent / unquote(target)).resolve()
+        if not candidate.is_relative_to(root) or not candidate.exists():
+            missing.append(f"{note.relative_to(root)} -> {target}")
+if missing:
+    print("FAIL docs links: " + "; ".join(missing[:10]), file=sys.stderr)
+    raise SystemExit(1)
+print("PASS docs links: local Markdown targets resolve")
+PY
+    then
+        :
+    else
+        echo "Remediation: repair the reported Markdown link(s), or rerun setup.sh --update for template-managed documentation." >&2
+        doctor_status=1
+    fi
+    if [ "$doctor_status" -eq 0 ]; then
+        echo "Doctor result: READY"
+    else
+        echo "Doctor result: NOT READY" >&2
+    fi
+    return "$doctor_status"
 }
 
 validate_models() {
@@ -154,6 +303,16 @@ while [ "$#" -gt 0 ]; do
         --force) FORCE=true ;;
         --interactive) FORCE_INTERACTIVE=true ;;
         --update) UPDATE=true ;;
+        --doctor) DOCTOR=true ;;
+        --migration-plan)
+            shift
+            [ "$#" -gt 0 ] || { echo "Error: --migration-plan requires a relative output path." >&2; exit 1; }
+            MIGRATION_PLAN="$1"
+            ;;
+        --migration-plan=*)
+            MIGRATION_PLAN="${1#--migration-plan=}"
+            [ -n "$MIGRATION_PLAN" ] || { echo "Error: --migration-plan requires a relative output path." >&2; exit 1; }
+            ;;
         --with-advanced-docs) WITH_ADVANCED_DOCS=true ;;
         --with-legacy-agents) WITH_LEGACY_AGENTS=true ;;
         --models)
@@ -175,6 +334,11 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ "$DOCTOR" = true ] && { [ "$UPDATE" = true ] || [ "$DRY_RUN" = true ] || [ -n "$MIGRATION_PLAN" ]; }; then
+    echo "Error: --doctor cannot be combined with --update, --dry-run, or --migration-plan." >&2
+    exit 1
+fi
+
 # Set the source directory (where this script is located)
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
@@ -182,6 +346,10 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DEST_DIR="$(pwd -P)"
 
 if [[ "$SRC_DIR" == "$DEST_DIR" || "$DEST_DIR" == "$SRC_DIR"/* ]]; then
+    if [ "$DOCTOR" = true ] && [ "$DEST_DIR" = "$SRC_DIR" ]; then
+        run_doctor
+        exit $?
+    fi
     echo "Error: Target directory must not be the template directory or a subdirectory of it."
     echo "Usage: /path/to/ai-project-template/setup.sh"
     exit 1
@@ -194,6 +362,22 @@ fi
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: Python 3 is required to validate and generate the template manifest." >&2
     exit 1
+fi
+
+if [ "$DOCTOR" = true ]; then
+    run_doctor
+    exit $?
+fi
+
+if [ -n "$MIGRATION_PLAN" ]; then
+    [ "$UPDATE" = true ] && [ "$DRY_RUN" = true ] || { echo "Error: --migration-plan requires --dry-run --update." >&2; exit 1; }
+    case "$MIGRATION_PLAN" in
+        /*|*".."*|*"$'\n'"*|*"$'\r'"*) echo "Error: --migration-plan must be a safe relative output path." >&2; exit 1 ;;
+    esac
+    if [ -e "$DEST_DIR/$MIGRATION_PLAN" ] || [ -L "$DEST_DIR/$MIGRATION_PLAN" ]; then
+        echo "Error: Refusing to overwrite existing migration plan: $MIGRATION_PLAN" >&2
+        exit 1
+    fi
 fi
 
 # template-paths.sh reads profile membership from the manifest, so load it
@@ -285,10 +469,75 @@ cleanup_temporary_files() {
     for temporary_file in "${ACTIVE_TEMP_FILES[@]-}"; do
         [ -e "$temporary_file" ] && rm -f "$temporary_file"
     done
+    if [ -n "$PLAN_EVENTS_FILE" ] && [ -e "$PLAN_EVENTS_FILE" ]; then
+        rm -f "$PLAN_EVENTS_FILE"
+    fi
     return 0
 }
 trap cleanup_temporary_files EXIT
 trap 'cleanup_temporary_files; exit 130' INT TERM
+
+plan_record() {
+    [ -n "$MIGRATION_PLAN" ] || return 0
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN_EVENTS_FILE"
+}
+
+write_migration_plan() {
+    [ -n "$MIGRATION_PLAN" ] || return 0
+    python3 - "$PLAN_EVENTS_FILE" "$DEST_DIR/$MIGRATION_PLAN" "$DEST_DIR" <<'PY'
+import json
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+events_path, output_path, destination = map(Path, sys.argv[1:])
+destination = destination.resolve()
+if not output_path.resolve().is_relative_to(destination):
+    raise ValueError("migration plan output escapes the destination root")
+relative_parent = output_path.parent.relative_to(destination)
+current = destination
+for part in relative_parent.parts:
+    current /= part
+    if current.is_symlink():
+        raise ValueError("migration plan parent must not be a symlink")
+groups = defaultdict(list)
+for line in events_path.read_text(encoding="utf-8").splitlines():
+    kind, path, detail = line.split("\t", 2)
+    groups[kind].append({"path": path, "detail": detail})
+payload = {
+    "schema_version": 1,
+    "mode": "dry-run-update",
+    "destination": str(destination),
+    "backup_directory_pattern": str(destination / ".ai-template-backup.XXXXXX"),
+    "rollback": "After a real update, copy the desired file from the reported backup directory; see RECOVERY.md in that directory.",
+    "will_replace": groups["replace"],
+    "will_install": groups["install"],
+    "will_preserve": groups["preserve"],
+    "manual_action": groups["manual"],
+    "blocked": groups["blocked"],
+    "migrations": groups["migrate"],
+}
+output_path.parent.mkdir(parents=True, exist_ok=True)
+if output_path.suffix.lower() == ".json":
+    output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+else:
+    lines = [
+        "# AI Template Migration Plan", "", "- Mode: `--dry-run --update`", f"- Destination: `{destination}`",
+        f"- Planned backup directory: `{payload['backup_directory_pattern']}`", "- Rollback: after a real update, use `RECOVERY.md` in the reported backup directory to restore individual files.", "",
+    ]
+    for title, key in [("Will replace", "will_replace"), ("Will install", "will_install"), ("Will preserve", "will_preserve"), ("Manual action", "manual_action"), ("Blocked", "blocked"), ("Migrations", "migrations")]:
+        lines.extend([f"## {title}", ""])
+        entries = payload[key]
+        lines.extend([f"- `{entry['path']}` — {entry['detail']}" for entry in entries] or ["- None."])
+        lines.append("")
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+PY
+    echo "Migration plan: $MIGRATION_PLAN"
+}
+
+if [ -n "$MIGRATION_PLAN" ]; then
+    PLAN_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/ai-template-plan.XXXXXX")"
+fi
 
 prepare_manifest_models() {
     local existing_manifest="$DEST_DIR/template-manifest.json"
@@ -379,8 +628,10 @@ copy_file() {
     if [ "$DRY_RUN" = true ]; then
         if [ -e "$destination_file" ] || [ -L "$destination_file" ]; then
             echo "UPDATE (backup): $relative_path"
+            plan_record "replace" "$relative_path" "managed file will be backed up and replaced"
         else
             echo "INSTALL: $relative_path"
+            plan_record "install" "$relative_path" "new template-managed file"
         fi
         PLANNED_COUNT=$((PLANNED_COUNT + 1))
         return
@@ -464,6 +715,7 @@ collect_managed_adapter_models() {
 copy_selected_manifest() {
     if [ "$MANIFEST_UPDATE_ALLOWED" = false ]; then
         echo "SKIP (unmanaged manifest): template-manifest.json"
+        plan_record "manual" "template-manifest.json" "unmanaged manifest must be reviewed manually"
         SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
         return
     fi
@@ -471,11 +723,13 @@ copy_selected_manifest() {
         if [ -e "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
             if [ "$UPDATE" = true ]; then
                 echo "UPDATE (backup): template-manifest.json"
+                plan_record "replace" "template-manifest.json" "managed manifest will be backed up and regenerated"
             else
                 echo "UPDATE: template-manifest.json"
             fi
         else
             echo "INSTALL: template-manifest.json"
+            plan_record "install" "template-manifest.json" "new template-managed manifest"
         fi
         PLANNED_COUNT=$((PLANNED_COUNT + 1))
         return
@@ -653,6 +907,7 @@ report_blocked_path() {
     done
 
     echo "BLOCKED ($reason): $relative_path"
+    plan_record "blocked" "$relative_path" "$reason; resolve this path before a real update"
     BLOCKED_PATHS+=("$relative_path")
     BLOCKED_COUNT=$((BLOCKED_COUNT + 1))
 }
@@ -708,10 +963,12 @@ migrate_renamed_template_files() {
         legacy_template_migration_allowed "$old_relative_path" || continue
         if [ -L "$old_path" ]; then
             echo "SKIP (symlink legacy template): $old_relative_path"
+            plan_record "preserve" "$old_relative_path" "legacy template is a symlink; resolve manually"
             continue
         fi
         if [ ! -f "$old_path" ]; then
             echo "SKIP (non-file legacy template): $old_relative_path"
+            plan_record "manual" "$old_relative_path" "legacy template is not a regular file"
             continue
         fi
         if ! python3 - "$old_path" "$expected_sha256" <<'PY'
@@ -725,11 +982,13 @@ raise SystemExit(0 if hashlib.sha256(path.read_bytes()).hexdigest() in expected.
 PY
         then
             echo "SKIP (user-modified legacy template): $old_relative_path"
+            plan_record "preserve" "$old_relative_path" "user-modified legacy template"
             continue
         fi
 
         if [ "$DRY_RUN" = true ]; then
             echo "MIGRATE (remove renamed template): $old_relative_path -> $new_relative_path"
+            plan_record "migrate" "$old_relative_path" "remove unchanged legacy name after $new_relative_path is installed"
             PLANNED_COUNT=$((PLANNED_COUNT + 1))
             continue
         fi
@@ -842,7 +1101,11 @@ if [ "$UPDATE" = true ]; then
     echo "Update mode: existing managed files will be backed up then replaced."
 fi
 if [ "$DRY_RUN" = true ]; then
-    echo "Dry run only — no files will be changed."
+    if [ -n "$MIGRATION_PLAN" ]; then
+        echo "Dry run only — no template-managed files will be changed; the requested migration plan will be written: $MIGRATION_PLAN"
+    else
+        echo "Dry run only — no files will be changed."
+    fi
 fi
 
 # Check every destination before copying anything. This prevents a later
@@ -874,12 +1137,24 @@ if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
     copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
 else
     echo "SKIP (validator bundle conflict): tools/docs_validation.py, tools/validate-docs.py"
+    plan_record "manual" "tools/docs_validation.py" "user-owned validator bundle will be preserved"
+    plan_record "manual" "tools/validate-docs.py" "user-owned validator bundle will be preserved"
     SKIPPED_COUNT=$((SKIPPED_COUNT + 2))
 fi
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
     for relative_path in "${OPTIONAL_LEGACY_PATHS[@]}"; do
         copy_file "$SRC_DIR/AGENTS.md" "$relative_path"
+    done
+fi
+
+if [ "$UPDATE" = true ]; then
+    for mapping in "claude:CLAUDE.md" "antigravity:GEMINI.md" "qwen:QWEN.md"; do
+        model="${mapping%%:*}"
+        adapter="${mapping#*:}"
+        if model_selected "$model" && ! adapter_selected_for_copy "$model"; then
+            plan_record "preserve" "$adapter" "user-owned or unmanaged runtime adapter"
+        fi
     done
 fi
 
@@ -893,6 +1168,8 @@ migrate_renamed_template_files
 
 # Publish the manifest only after every selected file has been copied.
 copy_selected_manifest
+
+write_migration_plan
 
 echo "----------------------------------------"
 if [ "$DRY_RUN" = true ]; then

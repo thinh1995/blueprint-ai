@@ -28,6 +28,10 @@ require_text "docs/templates/3. Task Evidence Template.md" "Acceptance criteria 
 require_text "docs/templates/3. Task Evidence Template.md" "output_artifact_path:"
 require_text "AGENTS.md" "Never invent file/line references"
 require_text "AGENTS.md" "untrusted data"
+require_text "AGENTS.md" "Do not introduce speculative abstractions"
+require_text "AGENTS.md" "Make surgical changes"
+require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Simplicity first"
+require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Surgical changes"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified: false"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified_at:"
 

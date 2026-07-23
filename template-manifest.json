@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "managed_profiles": ["core"],
   "managed_paths": [
     "AGENTS.md",

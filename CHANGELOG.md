@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.4] - 2026-07-23
+
+- Added `setup.sh --doctor`, a read-only readiness check for Bash/Python, selected runtime agents and adapters, manifest ownership, and local Markdown documentation links.
+- Added `--dry-run --update --migration-plan PATH` to publish Markdown or JSON migration reports with replacement, preservation/manual-action, backup, and rollback guidance.
+- Added simplicity-first and surgical-change policy guardrails, with onboarding guidance and regression validation.
+
 ## [0.4.3] - 2026-07-22
 
 - Replaced the Gemini CLI installer selection with Antigravity CLI (`antigravity`) while retaining the documented `GEMINI.md` compatibility adapter.

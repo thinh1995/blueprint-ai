@@ -17,7 +17,7 @@ def main() -> None:
     prompt = ROOT / "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md"
     runtime = ROOT / "docs/current/00 - Onboarding/5. Model Runtime Instructions.md"
     contract = ROOT / "docs/templates/2. Documentation Subagent Contract.md"
-    matrix = ROOT / "V4_ACCEPTANCE_MATRIX.md"
+    matrix = ROOT / "docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md"
 
     for text in [
         "creating specialized sub-agents is mandatory before any documentation write",

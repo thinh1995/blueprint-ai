@@ -55,13 +55,13 @@ require_text "AGENTS.md" "NEEDS CLARIFICATION"
 require_text "AGENTS.md" "Owned paths"
 require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Spec-Driven Feature Prompts"
 require_text "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md" "tools/validate-docs.py --require-tasks"
-require_text "V5_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.0`'
+require_text "docs/internal/acceptance-matrices/V5_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.0`'
 require_text "docs/templates/examples/ai-support-agent/1. Product Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "sequenceDiagram"
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "stateDiagram-v2"
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "docs/templates"
-require_text "V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
+require_text "docs/internal/acceptance-matrices/V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "tools/validate-docs.py"
 require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
 require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"

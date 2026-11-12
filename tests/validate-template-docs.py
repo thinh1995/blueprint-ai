@@ -48,7 +48,7 @@ def main() -> None:
         matrix_tag = f"{minor}_{patch}"
     else:
         matrix_tag = f"{major}_{minor}_{patch}"
-    matrix = ROOT / f"V{matrix_tag}_ACCEPTANCE_MATRIX.md"
+    matrix = DOCS / "internal/acceptance-matrices" / f"V{matrix_tag}_ACCEPTANCE_MATRIX.md"
     require_text(ROOT / "README.md", f"Current release: `{version}`.")
     changelog = read(ROOT / "CHANGELOG.md")
     require(

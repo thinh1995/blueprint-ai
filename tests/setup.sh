@@ -1005,7 +1005,7 @@ PY
 strict_evidence_dir="$TEST_DIR/strict-evidence"
 mkdir -p "$strict_evidence_dir"
 strict_source_revision="$(git -C "$TEMPLATE_DIR" rev-list --max-parents=0 HEAD)"
-strict_checksum="$(shasum -a 256 "$TEMPLATE_DIR/V4_ACCEPTANCE_MATRIX.md" | awk '{print $1}')"
+strict_checksum="$(shasum -a 256 "$TEMPLATE_DIR/docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md" | awk '{print $1}')"
 printf '%s\n' \
     '---' \
     'status: completed' \
@@ -1017,7 +1017,7 @@ printf '%s\n' \
     'reviewer: fixture' \
     'environment: local/dev' \
     "output_artifact_sha256: $strict_checksum" \
-    'output_artifact_path: V4_ACCEPTANCE_MATRIX.md' \
+    'output_artifact_path: docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md' \
     '---' \
     '| AC-01 | fixture | fixture | PASS / 0 |' \
     > "$strict_evidence_dir/working-tree-fallback.md"

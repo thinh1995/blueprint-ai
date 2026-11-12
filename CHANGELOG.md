@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1] - 2026-11-12
+
+- Added 7 canonical progressive-disclosure `sdd-*` Agent Skills (`skills/sdd-{docs,specify,clarify,plan,tasks,analyze,implement}/SKILL.md`, each `<= 4 KB` with portable `{name, description}` frontmatter, explicit-intent read-only guardrails, depth-safe inline code path references, and active feature folder auto-resolution) delegating without duplication to `AGENTS.md` and `docs/current/00 - Onboarding/` (`4` & `6`).
+- Added `tests/validate-skills-contract.py` (`--self-test` supported) to enforce canonical skill directory structure, strict frontmatter keys, byte budget, code-stripped link/wikilink/clarify hygiene, and policy/trust delegation.
+- Updated `setup.sh`, `template-paths.sh`, and `template-manifest.json` (`0.5.1`) to install the 7 skills by default into `.claude/skills/`, `.agents/skills/`, and `.qwen/skills/` per selected `--models` (`gemma` installs 0 skill directories), with `--without-skills` opt-out (`"skills_enabled": false`), non-destructive `--update --without-skills` preservation, incremental normal-install re-enable, and per-skill user-ownership preservation + `.ai-template-backup.*` (`RECOVERY.md`) updates.
+- Extended `setup.sh --doctor` to verify the 7 canonical SDD skills in source-template mode and verify managed runtime skill files (or report `INFO skills: disabled via --without-skills`) in downstream projects.
+- Updated `README.md` (beginner 5-minute Quickstart showcasing `/sdd-docs` and `/sdd-specify` -> `/sdd-implement` alongside natural-language fallback) and onboarding notes `1`, `4`, `5`, and `6`.
+
 ## [0.5.0] - 2026-11-12
 
 - Added a 4-file Spec-Driven Development feature pack (`4. Tasks.md` with embedded Pre-implementation Readiness Checklist, vertical MVP slicing, and `[P]` path-ownership boundaries) across `docs/templates/feature-spec-template/` and `docs/templates/examples/ai-support-agent/`.

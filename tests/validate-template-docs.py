@@ -79,7 +79,18 @@ def main() -> None:
         "00 - Onboarding/5. Model Runtime Instructions.md: missing expected text: Documentation sub-agent contract",
     )
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
+    require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
+    require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "/sdd-docs")
+    require(
+        "--without-skills" in runtime_instructions and ".agents/skills/" in runtime_instructions,
+        "00 - Onboarding/5. Model Runtime Instructions.md: missing runtime skill directory or --without-skills guidance",
+    )
+    require_text(ROOT / "README.md", "/sdd-docs")
+    require_text(ROOT / "README.md", "/sdd-specify")
+    require_text(ROOT / "README.md", "--without-skills")
     sdd_prompts = read(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md")
+    for slash_cmd in ("/sdd-specify", "/sdd-clarify", "/sdd-plan", "/sdd-tasks", "/sdd-analyze", "/sdd-implement"):
+        require(slash_cmd in sdd_prompts, f"6. Spec-Driven Feature Prompts.md: missing {slash_cmd} shortcut")
     for stage in ("Specify", "Clarify", "Plan", "Tasks", "Analyze", "Implement"):
         require(
             bool(re.search(rf"^##\s+\d+\.\s+{stage}\b", sdd_prompts, re.M)),

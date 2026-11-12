@@ -50,7 +50,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((11 + core_doc_count))
+expected_file_count=$((32 + core_doc_count))
 
 (
     cd "$target"
@@ -90,6 +90,12 @@ fi
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/GEMINI.md" ] || fail "default install did not copy GEMINI.md"
 [ -f "$target/QWEN.md" ] || fail "default install did not copy QWEN.md"
+for skill_dir in ".claude/skills" ".agents/skills" ".qwen/skills"; do
+    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement; do
+        [ -f "$target/$skill_dir/$skill_slug/SKILL.md" ] || fail "default install did not copy $skill_dir/$skill_slug/SKILL.md"
+    done
+done
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["skills_enabled"] is True' "$target/template-manifest.json"
 assert_file_contains "$target/GEMINI.md" "Antigravity CLI Project Instructions"
 assert_file_contains "$target/GEMINI.md" "AGENTS.md"
 assert_file_contains "$target/GEMINI.md" "@AGENTS.md"
@@ -113,14 +119,22 @@ assert_file_contains "$TEST_DIR/selected-models-install.txt" "Selected model run
 [ -f "$selected_models_target/GEMINI.md" ] || fail "selected-model install did not copy GEMINI.md"
 [ -f "$selected_models_target/QWEN.md" ] || fail "selected-model install did not copy QWEN.md"
 [ ! -e "$selected_models_target/CLAUDE.md" ] || fail "selected-model install copied unselected CLAUDE.md"
+[ -f "$selected_models_target/.agents/skills/sdd-docs/SKILL.md" ] || fail "selected-model install did not copy Antigravity skills"
+[ -f "$selected_models_target/.qwen/skills/sdd-docs/SKILL.md" ] || fail "selected-model install did not copy Qwen skills"
+[ ! -e "$selected_models_target/.claude" ] || fail "selected-model install created unselected .claude directory"
 python3 - "$selected_models_target/template-manifest.json" <<'PY'
 import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
 assert manifest["selected_models"] == ["antigravity", "qwen"]
+assert manifest["skills_enabled"] is True
 assert "CLAUDE.md" not in manifest["managed_paths"]
 assert "CLAUDE.md" not in manifest["profiles"]["core"]
+assert not any(p.startswith(".claude/skills/") for p in manifest["managed_paths"])
+assert not any(p.startswith(".claude/skills/") for p in manifest["profiles"]["core"])
+assert ".agents/skills/sdd-specify/SKILL.md" in manifest["managed_paths"]
+assert ".qwen/skills/sdd-specify/SKILL.md" in manifest["managed_paths"]
 assert "GEMINI.md" in manifest["profiles"]["core"]
 assert "QWEN.md" in manifest["profiles"]["core"]
 PY
@@ -135,6 +149,9 @@ assert_file_contains "$TEST_DIR/gemma-models-install.txt" "Gemma/custom API sele
 [ ! -e "$gemma_models_target/CLAUDE.md" ] || fail "Gemma-only install copied CLAUDE.md"
 [ ! -e "$gemma_models_target/GEMINI.md" ] || fail "Gemma-only install copied GEMINI.md"
 [ ! -e "$gemma_models_target/QWEN.md" ] || fail "Gemma-only install copied QWEN.md"
+[ ! -e "$gemma_models_target/.claude" ] || fail "Gemma-only install created .claude skill directory"
+[ ! -e "$gemma_models_target/.agents" ] || fail "Gemma-only install created .agents skill directory"
+[ ! -e "$gemma_models_target/.qwen" ] || fail "Gemma-only install created .qwen skill directory"
 python3 - "$gemma_models_target/template-manifest.json" <<'PY'
 import json
 import sys
@@ -142,6 +159,8 @@ import sys
 manifest = json.load(open(sys.argv[1]))
 assert manifest["selected_models"] == ["gemma"]
 assert all(adapter not in manifest["profiles"]["core"] for adapter in ["CLAUDE.md", "GEMINI.md", "QWEN.md"])
+assert not any("/skills/" in path for path in manifest["managed_paths"])
+assert not any("/skills/" in path for path in manifest["profiles"]["core"])
 PY
 
 invalid_models_target="$TEST_DIR/invalid-models-target"
@@ -459,6 +478,9 @@ source_overrides = {
     "tools/new-feature.py": "tests/new-feature.py",
     "tools/export-tasks.py": "tests/export-tasks.py",
 }
+for prefix in (".claude", ".agents", ".qwen"):
+    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement"):
+        source_overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
 expected: set[str] = set()
 for relative in profile:
     source = template_root / source_overrides.get(relative, relative)
@@ -489,6 +511,7 @@ cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/vali
 cp "$TEMPLATE_DIR/tests/new-feature.py" "$metadata_template/tests/new-feature.py"
 cp "$TEMPLATE_DIR/tests/export-tasks.py" "$metadata_template/tests/export-tasks.py"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
+cp -R "$TEMPLATE_DIR/skills" "$metadata_template/skills"
 touch "$metadata_template/task-evidence/.gitkeep"
 printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 (
@@ -509,6 +532,7 @@ cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tes
 cp "$TEMPLATE_DIR/tests/new-feature.py" "$invalid_profile_template/tests/new-feature.py"
 cp "$TEMPLATE_DIR/tests/export-tasks.py" "$invalid_profile_template/tests/export-tasks.py"
 cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
+cp -R "$TEMPLATE_DIR/skills" "$invalid_profile_template/skills"
 touch "$invalid_profile_template/task-evidence/.gitkeep"
 python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
 import json
@@ -1408,5 +1432,199 @@ if (
 fi
 assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "FAIL spec readiness:"
 assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "Doctor result: NOT READY"
+
+# --- v0.5.1 SDD Slash Commands & Agent Skills Pack regression tests ---
+
+assert_file_contains "$TEMPLATE_DIR/setup.sh" "--without-skills"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 7 canonical SDD skills verified"
+
+printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/claude"
+printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/qwen"
+chmod +x "$TEST_DIR/bin/claude" "$TEST_DIR/bin/qwen"
+
+# 1. --without-skills fresh install, opt-out persistence across --update, --doctor INFO, and normal incremental re-enable
+without_skills_target="$TEST_DIR/without-skills-target"
+mkdir -p "$without_skills_target"
+no_skills_expected_count=$((11 + core_doc_count))
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --without-skills
+) > "$TEST_DIR/without-skills-dry-run.txt"
+assert_file_contains "$TEST_DIR/without-skills-dry-run.txt" "Dry run complete: $no_skills_expected_count file(s) would be installed"
+
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity,qwen --without-skills
+) > "$TEST_DIR/without-skills-install.txt"
+[ ! -e "$without_skills_target/.agents" ] || fail "--without-skills created .agents directory"
+[ ! -e "$without_skills_target/.qwen" ] || fail "--without-skills created .qwen directory"
+python3 -B - "$without_skills_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is False, m
+assert not any("/skills/" in p for p in m["managed_paths"]), m["managed_paths"]
+assert not any("/skills/" in p for p in m["profiles"]["core"]), m["profiles"]["core"]
+PY
+
+(
+    cd "$without_skills_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-without-skills.txt"
+assert_file_contains "$TEST_DIR/doctor-without-skills.txt" "INFO skills: disabled via --without-skills"
+assert_file_contains "$TEST_DIR/doctor-without-skills.txt" "Doctor result: READY"
+
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/without-skills-update.txt"
+[ ! -e "$without_skills_target/.agents" ] || fail "--update ignored persisted skills_enabled: false"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["skills_enabled"] is False' "$without_skills_target/template-manifest.json"
+
+# Normal incremental install (without --without-skills) re-enables skills_enabled: true for requested runtime
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude
+) > "$TEST_DIR/without-skills-reenable.txt"
+[ -f "$without_skills_target/.claude/skills/sdd-docs/SKILL.md" ] || fail "normal incremental install did not install .claude skills"
+python3 -B - "$without_skills_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is True, m
+assert ".claude/skills/sdd-docs/SKILL.md" in m["managed_paths"], m["managed_paths"]
+assert ".claude/skills/sdd-docs/SKILL.md" in m["profiles"]["core"], m["profiles"]["core"]
+PY
+(
+    cd "$without_skills_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-reenabled-skills.txt"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 7 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "Doctor result: READY"
+
+# 2. --update --without-skills preserves existing SKILL.md files on disk (non-destructive) and drops them from managed_paths
+optout_update_target="$TEST_DIR/optout-update-target"
+mkdir -p "$optout_update_target"
+(
+    cd "$optout_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude,antigravity >/dev/null
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --without-skills --migration-plan optout-plan.json >/dev/null
+)
+python3 -B - "$optout_update_target/optout-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+assert any(item["path"] == ".claude/skills/sdd-docs/SKILL.md" for item in plan["will_preserve"]), plan["will_preserve"]
+assert any(item["path"] == ".agents/skills/sdd-implement/SKILL.md" for item in plan["will_preserve"]), plan["will_preserve"]
+PY
+(
+    cd "$optout_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --without-skills
+) > "$TEST_DIR/optout-update.txt"
+assert_file_contains "$TEST_DIR/optout-update.txt" "SKIP (skills disabled): .claude/skills/sdd-docs/SKILL.md"
+[ -f "$optout_update_target/.claude/skills/sdd-docs/SKILL.md" ] || fail "--update --without-skills deleted existing .claude skill"
+[ -f "$optout_update_target/.agents/skills/sdd-implement/SKILL.md" ] || fail "--update --without-skills deleted existing .agents skill"
+python3 -B - "$optout_update_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is False, m
+assert not any("/skills/" in p for p in m["managed_paths"]), m["managed_paths"]
+assert not any("/skills/" in p for p in m["profiles"]["core"]), m["profiles"]["core"]
+PY
+
+# 3. v0.5.0 upgrade via --update: installs managed skills, preserves pre-existing user-created SKILL.md, and backs up managed skills on later updates
+v050_skill_target="$TEST_DIR/v050-skill-target"
+mkdir -p "$v050_skill_target"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude,antigravity --without-skills >/dev/null
+)
+python3 -B - "$v050_skill_target/template-manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m["version"] = "0.5.0"
+m.pop("skills_enabled", None)
+open(p, "w").write(json.dumps(m, indent=2) + "\n")
+PY
+mkdir -p "$v050_skill_target/.claude/skills/sdd-plan"
+printf '# custom user sdd-plan\n' > "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan v050-skill-plan.json >/dev/null
+)
+python3 -B - "$v050_skill_target/v050-skill-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+assert any(item["path"] == ".claude/skills/sdd-plan/SKILL.md" for item in plan["manual_action"]), plan["manual_action"]
+assert any(item["path"] == ".claude/skills/sdd-specify/SKILL.md" for item in plan["will_install"]), plan["will_install"]
+assert any(item["path"] == ".agents/skills/sdd-plan/SKILL.md" for item in plan["will_install"]), plan["will_install"]
+PY
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v050-skill-update.txt"
+assert_file_contains "$TEST_DIR/v050-skill-update.txt" "SKIP (user-owned skill): .claude/skills/sdd-plan/SKILL.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md" "# custom user sdd-plan"
+[ -f "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md" ] || fail "v0.5.0 update did not install sibling .claude skill"
+[ -f "$v050_skill_target/.agents/skills/sdd-plan/SKILL.md" ] || fail "v0.5.0 update did not install .agents skill"
+python3 -B - "$v050_skill_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is True
+assert ".claude/skills/sdd-plan/SKILL.md" not in m["managed_paths"]
+assert ".claude/skills/sdd-plan/SKILL.md" not in m["profiles"]["core"]
+assert ".claude/skills/sdd-specify/SKILL.md" in m["managed_paths"]
+assert ".agents/skills/sdd-plan/SKILL.md" in m["managed_paths"]
+PY
+
+# Subsequent --update backs up managed skill edits to .ai-template-backup.* while keeping user-owned skill untouched
+rm -rf "$v050_skill_target"/.ai-template-backup.*
+printf '# local edit on managed skill\n' > "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update >/dev/null
+)
+skill_backup_dir="$(find "$v050_skill_target" -maxdepth 1 -type d -name '.ai-template-backup.*' -print -quit)"
+[ -n "$skill_backup_dir" ] || fail "managed skill update did not create .ai-template-backup.*"
+assert_file_contains "$skill_backup_dir/.claude/skills/sdd-specify/SKILL.md" "# local edit on managed skill"
+assert_file_contains "$skill_backup_dir/RECOVERY.md" "Template update recovery"
+[ ! -e "$skill_backup_dir/.claude/skills/sdd-plan/SKILL.md" ] || fail "update backed up user-owned .claude/skills/sdd-plan/SKILL.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md" "AGENTS.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md" "# custom user sdd-plan"
+
+# 4. setup.sh --doctor flag guard & downstream managed skill deletion/symlink failure remediation
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --without-skills
+) > "$TEST_DIR/doctor-flag-combo.txt" 2>&1; then
+    fail "--doctor accepted --without-skills combination"
+fi
+
+(
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-v050-skills-ready.txt"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 13 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "Doctor result: READY"
+
+mv "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md" "$TEST_DIR/saved-sdd-docs-skill.md"
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-missing-skill.txt" 2>&1; then
+    fail "doctor accepted missing managed .claude/skills/sdd-docs/SKILL.md"
+fi
+assert_file_contains "$TEST_DIR/doctor-missing-skill.txt" "FAIL skills:"
+assert_file_contains "$TEST_DIR/doctor-missing-skill.txt" "setup.sh --update"
+
+ln -s "$TEST_DIR/saved-sdd-docs-skill.md" "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-symlink-skill.txt" 2>&1; then
+    fail "doctor accepted symlinked managed .claude/skills/sdd-docs/SKILL.md"
+fi
+assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "FAIL skills:"
+assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "setup.sh --update"
+rm -f "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
+mv "$TEST_DIR/saved-sdd-docs-skill.md" "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
 
 echo "PASS: setup installer regression tests"

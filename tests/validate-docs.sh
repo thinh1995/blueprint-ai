@@ -56,6 +56,7 @@ require_text "AGENTS.md" "Owned paths"
 require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Spec-Driven Feature Prompts"
 require_text "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md" "tools/validate-docs.py --require-tasks"
 require_text "docs/internal/acceptance-matrices/V5_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.0`'
+require_text "docs/internal/acceptance-matrices/V5_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.1`'
 require_text "docs/templates/examples/ai-support-agent/1. Product Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "sequenceDiagram"
@@ -69,6 +70,8 @@ require_text ".github/workflows/ai-template-validation.yml" "node-version: 22.14
 require_text "README.md" "--dry-run --update"
 require_text "docs/current/00 - Onboarding/1. Setup Guide.md" "RECOVERY.md"
 python3 -B "$ROOT_DIR/tests/validate-template-docs.py"
+python3 -B "$ROOT_DIR/tests/validate-skills-contract.py"
+python3 -B "$ROOT_DIR/tests/validate-skills-contract.py" --self-test
 python3 -B "$ROOT_DIR/tests/validate-orchestration-contract.py"
 python3 -B "$ROOT_DIR/tests/validate-runtime-delegation-fixture.py"
 python3 -B "$ROOT_DIR/tests/validate-antigravity-conformance-fixture.py"

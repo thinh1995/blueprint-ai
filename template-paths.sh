@@ -30,11 +30,24 @@ overrides = {
     "tools/export-tasks.py": "tests/export-tasks.py",
     ".agents/AGENTS.md": "AGENTS.md",
 }
+for prefix in (".claude", ".agents", ".qwen"):
+    for slug in (
+        "sdd-docs",
+        "sdd-specify",
+        "sdd-clarify",
+        "sdd-plan",
+        "sdd-tasks",
+        "sdd-analyze",
+        "sdd-implement",
+    ):
+        overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
 
 if "default_preset" in manifest and manifest["default_preset"] is not None:
     preset = manifest["default_preset"]
     if not isinstance(preset, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", preset):
         raise ValueError("manifest default_preset must be a lowercase kebab-case slug")
+if "skills_enabled" in manifest and not isinstance(manifest["skills_enabled"], bool):
+    raise ValueError("manifest skills_enabled must be a boolean")
 
 def validate_path(value: object, profile: str) -> str:
     if not isinstance(value, str) or not value:

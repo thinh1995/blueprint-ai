@@ -9,7 +9,13 @@ from pathlib import Path
 # Validation is read-only; avoid creating __pycache__ artifacts in the template.
 sys.dont_write_bytecode = True
 
-from docs_validation import read, validate_links, validate_mermaid
+from docs_validation import (
+    read,
+    validate_clarify_gate,
+    validate_feature_folder,
+    validate_links,
+    validate_mermaid,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
@@ -35,24 +41,66 @@ def require_text(path: Path, text: str) -> str:
 
 def main() -> None:
     version = json.loads((ROOT / "template-manifest.json").read_text())["version"]
-    matrix = ROOT / f"V{version.split('.', 1)[1].replace('.', '_')}_ACCEPTANCE_MATRIX.md"
+    major, minor, patch = version.split(".")
+    if major == "0" and patch == "0":
+        matrix_tag = minor
+    elif major == "0":
+        matrix_tag = f"{minor}_{patch}"
+    else:
+        matrix_tag = f"{major}_{minor}_{patch}"
+    matrix = DOCS / "internal/acceptance-matrices" / f"V{matrix_tag}_ACCEPTANCE_MATRIX.md"
     require_text(ROOT / "README.md", f"Current release: `{version}`.")
-    require_text(ROOT / "CHANGELOG.md", f"## [{version}] - 2026-07-23")
+    changelog = read(ROOT / "CHANGELOG.md")
+    require(
+        bool(re.search(rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", changelog, re.M)),
+        f"CHANGELOG.md: missing dated heading for [{version}]",
+    )
     require_text(matrix, f"Release target: `{version}`")
     require_text(ROOT / "GEMINI.md", "Antigravity CLI Project Instructions")
     require_text(ROOT / "QWEN.md", "AGENTS.md")
-    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "A file in the repository is **not** a system prompt.")
-    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "https://antigravity.google/docs/cli-subagents/")
-    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/")
+    runtime_instructions = require_text(
+        CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md",
+        "A file in the repository is **not** a system prompt.",
+    )
+    require(
+        "https://antigravity.google/docs/cli-subagents/" in runtime_instructions,
+        "00 - Onboarding/5. Model Runtime Instructions.md: missing expected text: https://antigravity.google/docs/cli-subagents/",
+    )
+    require(
+        "https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/" in runtime_instructions,
+        "00 - Onboarding/5. Model Runtime Instructions.md: missing expected text: https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/",
+    )
     require_text(TEMPLATES / "1. Agent System Prompt Template.md", "Prompting alone cannot enforce permissions")
     require_text(TEMPLATES / "2. Documentation Subagent Contract.md", "## Coordinator completion gate")
     require_text(TEMPLATES / "4. Runtime Delegation Evidence Template.md", "# Runtime Delegation Evidence")
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "BẮT BUỘC tạo")
-    require_text(CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md", "Documentation sub-agent contract")
+    require(
+        "Documentation sub-agent contract" in runtime_instructions,
+        "00 - Onboarding/5. Model Runtime Instructions.md: missing expected text: Documentation sub-agent contract",
+    )
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
+    require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
+    require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "/sdd-docs")
+    require(
+        "--without-skills" in runtime_instructions and ".agents/skills/" in runtime_instructions,
+        "00 - Onboarding/5. Model Runtime Instructions.md: missing runtime skill directory or --without-skills guidance",
+    )
+    require_text(ROOT / "README.md", "/sdd-docs")
+    require_text(ROOT / "README.md", "/sdd-specify")
+    require_text(ROOT / "README.md", "--without-skills")
+    sdd_prompts = read(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md")
+    for slash_cmd in ("/sdd-specify", "/sdd-clarify", "/sdd-plan", "/sdd-tasks", "/sdd-analyze", "/sdd-implement"):
+        require(slash_cmd in sdd_prompts, f"6. Spec-Driven Feature Prompts.md: missing {slash_cmd} shortcut")
+    for stage in ("Specify", "Clarify", "Plan", "Tasks", "Analyze", "Implement"):
+        require(
+            bool(re.search(rf"^##\s+\d+\.\s+{stage}\b", sdd_prompts, re.M)),
+            f"6. Spec-Driven Feature Prompts.md: missing canonical stage heading for {stage}",
+        )
+    require_text(TEMPLATES / "feature-spec-template/4. Tasks.md", "AGENTS.md Constitution check")
 
     for path in [*CURRENT.rglob("*.md"), *TEMPLATES.rglob("*.md")]:
-        require("*Khởi tạo:" not in read(path) and "*Changelog:" not in read(path), f"{path.relative_to(ROOT)}: inherited template-repository changelog text")
+        content = read(path)
+        require("*Khởi tạo:" not in content and "*Changelog:" not in content, f"{path.relative_to(ROOT)}: inherited template-repository changelog text")
 
     product = require_text(SAMPLE / "1. Product Spec.md", "## Traceability")
     tech = read(SAMPLE / "2. Tech Spec.md")
@@ -66,6 +114,8 @@ def main() -> None:
     files = markdown_files()
     validate_links(ROOT, DOCS, files)
     validate_mermaid(ROOT, files)
+    validate_clarify_gate(ROOT, files)
+    validate_feature_folder(ROOT, SAMPLE, require_tasks=True)
     print("PASS: template documentation, links, Mermaid structure, and traceability")
 
 

@@ -11,10 +11,10 @@ Claude Code, Gemini CLI and Qwen Code remain supported runtime adapters, but the
 
 | Runtime | Record | Current result |
 |---|---|---|
-| Codex desktop host | [2026-07-20-codex.md](docs/internal/runtime-delegation-evidence/2026-07-20-codex.md) | Delegated refresh completed; awaiting committed release artifact/sign-off. |
-| Claude Code | [2026-07-20-claude-code.md](docs/internal/runtime-delegation-evidence/2026-07-20-claude-code.md) | Skipped from v0.4.0 live gate; prior API connection failure retained as diagnostic. |
-| Gemini CLI | [2026-07-20-gemini-cli.md](docs/internal/runtime-delegation-evidence/2026-07-20-gemini-cli.md) | Skipped from v0.4.0 live gate; executable absence retained as diagnostic. |
-| Qwen Code | [2026-07-20-qwen-code.md](docs/internal/runtime-delegation-evidence/2026-07-20-qwen-code.md) | Skipped from v0.4.0 live gate; executable absence retained as diagnostic. |
+| Codex desktop host | [2026-07-20-codex.md](../runtime-delegation-evidence/2026-07-20-codex.md) | Delegated refresh completed; awaiting committed release artifact/sign-off. |
+| Claude Code | [2026-07-20-claude-code.md](../runtime-delegation-evidence/2026-07-20-claude-code.md) | Skipped from v0.4.0 live gate; prior API connection failure retained as diagnostic. |
+| Gemini CLI | [2026-07-20-gemini-cli.md](../runtime-delegation-evidence/2026-07-20-gemini-cli.md) | Skipped from v0.4.0 live gate; executable absence retained as diagnostic. |
+| Qwen Code | [2026-07-20-qwen-code.md](../runtime-delegation-evidence/2026-07-20-qwen-code.md) | Skipped from v0.4.0 live gate; executable absence retained as diagnostic. |
 
 | Area | Acceptance criterion | Validation |
 |---|---|---|

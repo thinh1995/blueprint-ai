@@ -20,6 +20,25 @@ UPDATE_MANAGED_ADAPTER_MODELS=""
 MANAGED_PROFILES="core"
 MANIFEST_UPDATE_ALLOWED=true
 VALIDATOR_BUNDLE_MANAGED=true
+NEW_FEATURE_MANAGED=true
+EXPORT_TASKS_MANAGED=true
+PRESET_NAME=""
+PRESET_OPTION_PROVIDED=false
+WITH_SKILLS=true
+WITHOUT_SKILLS_PROVIDED=false
+SDD_SKILL_SLUGS=(
+    "sdd-docs"
+    "sdd-specify"
+    "sdd-clarify"
+    "sdd-plan"
+    "sdd-tasks"
+    "sdd-analyze"
+    "sdd-implement"
+)
+SCHEDULED_SKILL_PATHS=()
+SKIPPED_USER_SKILL_PATHS=()
+PRESERVED_OPTOUT_SKILL_PATHS=()
+MANAGED_SKILL_PATHS=""
 GENERATED_MANIFEST=""
 ACTIVE_TEMP_FILES=()
 BACKUP_DIR=""
@@ -33,7 +52,7 @@ BLOCKED_PATHS=()
 
 usage() {
     cat <<'EOF'
-Usage: setup.sh [--dry-run] [--force] [--update] [--doctor] [--migration-plan PATH] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--models LIST]
+Usage: setup.sh [--dry-run] [--force] [--update] [--doctor] [--migration-plan PATH] [--interactive] [--with-advanced-docs] [--with-legacy-agents] [--without-skills] [--models LIST] [--preset NAME]
 
 Installs the AI agent rules and Obsidian starter vault into the current directory.
 
@@ -43,16 +62,22 @@ Installs the AI agent rules and Obsidian starter vault into the current director
   --update   Upgrade a project with a template-owned manifest. Existing managed
              files are backed up, then replaced by this template version.
   --doctor   Read-only readiness check for Bash/Python, installed runtime
-             adapters, manifest ownership, and local Markdown documentation links.
+             adapters, manifest ownership, managed tools, SDD skills, Markdown
+             links, and Spec-Driven Development readiness.
   --migration-plan PATH  With --dry-run --update, write a Markdown (.md) or JSON
              report describing planned replacements, preserved/manual items, and
              backup/rollback guidance. Refuses to overwrite an existing file.
   --with-advanced-docs  Install API, backend, infrastructure, and user-manual
                         starter notes.
   --with-legacy-agents  Install .agents/AGENTS.md for tools that require it.
+  --without-skills  Skip installing SDD slash-command skills (.claude/skills,
+                    .agents/skills, .qwen/skills) and record skills_enabled: false
+                    in template-manifest.json.
   --interactive  Show the model-selection menu even when stdin is not a TTY.
   --models LIST  Comma-separated runtime adapters: claude,antigravity,qwen,gemma,
                  or all. In an interactive terminal, omit this option to choose.
+  --preset NAME  Set default feature preset (general, web-api, cli-tool, ai-agent,
+                 or an existing docs/templates/presets/<name> directory).
 EOF
 }
 
@@ -60,6 +85,10 @@ run_doctor() {
     local doctor_status=0
     local runtime
     local command_name
+    local tool_path
+    local tool_state
+    local validator_module_dir=""
+    local validator_check_allowed=false
 
     echo "AI template doctor: $DEST_DIR"
     if [ -n "${BASH_VERSION:-}" ]; then
@@ -80,13 +109,110 @@ run_doctor() {
     else
         echo "PASS policy: AGENTS.md is a regular canonical policy file"
     fi
-    if [ ! -f "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
-        echo "FAIL manifest: a regular template-manifest.json is required. Remediation: run a normal setup, or restore the managed manifest before --update." >&2
-        doctor_status=1
+    if [ "$DEST_DIR" = "$SRC_DIR" ]; then
+        if [ ! -f "$SRC_DIR/template-manifest.json" ] || [ -L "$SRC_DIR/template-manifest.json" ]; then
+            echo "FAIL manifest: a regular source template-manifest.json is required. Remediation: restore template-manifest.json from Git." >&2
+            doctor_status=1
+        elif ! ( source "$SRC_DIR/template-paths.sh" ) >/dev/null 2>&1; then
+            echo "FAIL manifest: invalid source template-manifest.json. Remediation: inspect template-manifest.json and template-paths.sh." >&2
+            doctor_status=1
+        else
+            local src_version
+            src_version="$(python3 -B -c 'import json, sys; print(json.load(open(sys.argv[1])).get("version", "unknown"))' "$SRC_DIR/template-manifest.json")"
+            echo "PASS manifest: template-owned (source template); version=$src_version"
+        fi
+
+        local static_adapter
+        local adapters_ok=true
+        for static_adapter in "CLAUDE.md" "GEMINI.md" "QWEN.md" "docs/templates/1. Agent System Prompt Template.md"; do
+            if [ ! -f "$SRC_DIR/$static_adapter" ] || [ -L "$SRC_DIR/$static_adapter" ]; then
+                echo "FAIL adapter: missing regular $static_adapter. Remediation: restore $static_adapter from Git." >&2
+                doctor_status=1
+                adapters_ok=false
+            elif ! grep -Fq "AGENTS.md" "$SRC_DIR/$static_adapter"; then
+                echo "FAIL adapter: $static_adapter does not delegate to AGENTS.md. Remediation: restore $static_adapter from Git." >&2
+                doctor_status=1
+                adapters_ok=false
+            fi
+        done
+        if [ "$adapters_ok" = true ]; then
+            echo "PASS adapters: static runtime adapters and system-prompt template delegate to AGENTS.md"
+        fi
+
+        local src_tool
+        local src_tools_ok=true
+        for src_tool in \
+            "tests/validate-task-evidence.py" \
+            "tests/docs_validation.py" \
+            "tests/validate-project-docs.py" \
+            "tests/new-feature.py" \
+            "tests/export-tasks.py"; do
+            if [ ! -f "$SRC_DIR/$src_tool" ] || [ -L "$SRC_DIR/$src_tool" ]; then
+                echo "FAIL tools: missing or symlinked source tool $src_tool. Remediation: restore $src_tool from Git." >&2
+                doctor_status=1
+                src_tools_ok=false
+            fi
+        done
+        if [ "$src_tools_ok" = true ]; then
+            echo "PASS tools: source SDD and validation scripts verified in tests/"
+            validator_module_dir="$SRC_DIR/tests"
+            validator_check_allowed=true
+        fi
+
+        local skill_diag
+        if skill_diag="$(python3 -B - "$SRC_DIR" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+slugs = (
+    "sdd-docs",
+    "sdd-specify",
+    "sdd-clarify",
+    "sdd-plan",
+    "sdd-tasks",
+    "sdd-analyze",
+    "sdd-implement",
+)
+skills_dir = root / "skills"
+if skills_dir.is_symlink() or not skills_dir.is_dir():
+    print("missing or symlinked skills/ directory")
+    raise SystemExit(1)
+for slug in slugs:
+    sdir = skills_dir / slug
+    smd = sdir / "SKILL.md"
+    if sdir.is_symlink() or not sdir.is_dir() or smd.is_symlink() or not smd.is_file():
+        print(f"missing or symlinked skills/{slug}/SKILL.md")
+        raise SystemExit(1)
+    text = smd.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+    m = re.match(r"^---[ \t]*\n(.*?)\n---[ \t]*\n(.+)$", text, flags=re.S)
+    if not m:
+        print(f"skills/{slug}/SKILL.md is missing valid YAML frontmatter")
+        raise SystemExit(1)
+    fm_text, body = m.group(1), m.group(2)
+    if not re.search(rf"^name:\s*['\"]?{re.escape(slug)}['\"]?\s*$", fm_text, flags=re.M) or not re.search(r"^description:\s*\S+", fm_text, flags=re.M):
+        print(f"skills/{slug}/SKILL.md is missing name/description frontmatter")
+        raise SystemExit(1)
+    if "AGENTS.md" not in body:
+        print(f"skills/{slug}/SKILL.md does not delegate to AGENTS.md")
+        raise SystemExit(1)
+PY
+        )"; then
+            echo "PASS skills: 7 canonical SDD skills verified"
+        else
+            echo "FAIL skills: $skill_diag. Remediation: restore canonical skills/sdd-*/SKILL.md from Git." >&2
+            doctor_status=1
+        fi
     else
-        local manifest_output
-        if ! manifest_output="$(python3 - "$DEST_DIR" <<'PY'
+        if [ ! -f "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
+            echo "FAIL manifest: a regular template-manifest.json is required. Remediation: run a normal setup, or restore the managed manifest before --update." >&2
+            doctor_status=1
+        else
+            local manifest_output
+            if ! manifest_output="$(python3 -B - "$DEST_DIR" <<'PY'
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -111,67 +237,219 @@ if not isinstance(managed, list) or any(model not in known for model in managed)
 managed_profiles = manifest.get("managed_profiles", ["core"])
 if not isinstance(managed_profiles, list) or any(profile not in {"core", "--with-advanced-docs", "--with-legacy-agents"} for profile in managed_profiles):
     raise ValueError("manifest has invalid managed_profiles")
+if "default_preset" in manifest and manifest["default_preset"] is not None:
+    preset = manifest["default_preset"]
+    if not isinstance(preset, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", preset):
+        raise ValueError("manifest has invalid default_preset")
+if "skills_enabled" in manifest and not isinstance(manifest["skills_enabled"], bool):
+    raise ValueError("manifest has invalid skills_enabled")
+skills_enabled = manifest.get("skills_enabled", True)
 print("PASS manifest: template-owned; version=" + str(manifest.get("version", "unknown")))
+if "default_preset" in manifest and manifest["default_preset"] is not None:
+    preset = manifest["default_preset"]
+    if preset not in {"general", "web-api", "cli-tool", "ai-agent"}:
+        cur = root
+        preset_ok = True
+        for part in ("docs", "templates", "presets", preset):
+            cur = cur / part
+            if cur.is_symlink() or not cur.is_dir():
+                preset_ok = False
+                break
+        if preset_ok:
+            print("PASS preset: custom default_preset '" + preset + "' verified")
+        else:
+            print("PRESET_FAIL|" + preset)
+    else:
+        print("PASS preset: built-in default_preset '" + preset + "' verified")
 for model in models:
     print("RUNTIME|" + model + "|" + ("managed" if model in managed else "unmanaged"))
+managed_set = set(manifest["managed_paths"])
+for tool_rel in (
+    "tools/validate-task-evidence.py",
+    "tools/docs_validation.py",
+    "tools/validate-docs.py",
+    "tools/new-feature.py",
+    "tools/export-tasks.py",
+):
+    print("TOOL|" + tool_rel + "|" + ("managed" if tool_rel in managed_set else "unmanaged"))
+def valid_skill_file(rel: str) -> bool:
+    cur = root
+    parts = rel.split("/")
+    for part in parts[:-1]:
+        cur = cur / part
+        if cur.is_symlink() or not cur.is_dir():
+            return False
+    target = cur / parts[-1]
+    if target.is_symlink() or not target.is_file():
+        return False
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+    except OSError:
+        return False
+    m = re.match(r"^---[ \t]*\n(.*?)\n---[ \t]*\n(.+)$", text, flags=re.S)
+    if not m:
+        return False
+    fm_text, body = m.group(1), m.group(2)
+    return bool(
+        re.search(r"^name:\s*\S+", fm_text, flags=re.M)
+        and re.search(r"^description:\s*\S+", fm_text, flags=re.M)
+        and "AGENTS.md" in body
+    )
+skill_paths = [
+    path for path in manifest["managed_paths"]
+    if re.fullmatch(r"\.(claude|agents|qwen)/skills/[^/]+/SKILL\.md", path)
+]
+if not skills_enabled and not skill_paths:
+    print("SKILLS_DISABLED")
+else:
+    for sp in skill_paths:
+        print(("SKILL_OK|" if valid_skill_file(sp) else "SKILL_FAIL|") + sp)
+    if not skill_paths:
+        capable = [m for m in models if m in {"claude", "antigravity", "gemini", "qwen"}]
+        if not capable:
+            print("SKILLS_NONE_FOR_RUNTIME")
+        else:
+            print("SKILLS_UNMANAGED")
 PY
 )"; then
-            echo "FAIL manifest: invalid template-owned manifest. Remediation: inspect template-manifest.json; do not run --update until it is repaired." >&2
-            doctor_status=1
-        else
-            while IFS= read -r line; do
-                case "$line" in
-                    RUNTIME\|*)
-                        IFS='|' read -r _ runtime managed_state <<< "$line"
-                        case "$runtime" in
-                            claude) command_name="claude"; adapter="CLAUDE.md" ;;
-                            antigravity|gemini) command_name="agy"; adapter="GEMINI.md" ;;
-                            qwen) command_name="qwen"; adapter="QWEN.md" ;;
-                            gemma) command_name=""; adapter="" ;;
-                            *) echo "FAIL runtime: unknown selected runtime '$runtime'. Remediation: repair the manifest." >&2; doctor_status=1; continue ;;
-                        esac
-                        if [ "$runtime" = gemma ]; then
-                            if [ ! -f "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ] || [ -L "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ]; then
-                                echo "FAIL runtime gemma: the required system-prompt template is missing. Remediation: restore docs/templates/1. Agent System Prompt Template.md with setup.sh --update." >&2
-                            else
-                                echo "FAIL runtime gemma: host-level system-prompt injection cannot be verified from this repository. Remediation: verify the host injects docs/templates/1. Agent System Prompt Template.md before enabling write tools." >&2
+                echo "FAIL manifest: invalid template-owned manifest. Remediation: inspect template-manifest.json; do not run --update until it is repaired." >&2
+                doctor_status=1
+            else
+                local tools_ok=true
+                local skills_ok=true
+                local managed_skill_count=0
+                local skill_path
+                while IFS= read -r line; do
+                    case "$line" in
+                        PRESET_FAIL\|*)
+                            local bad_preset="${line#PRESET_FAIL|}"
+                            echo "FAIL preset: custom default_preset '$bad_preset' is missing or symlinked at docs/templates/presets/$bad_preset. Remediation: create a regular directory at docs/templates/presets/$bad_preset or run setup.sh --update --preset general." >&2
+                            doctor_status=1
+                            ;;
+                        RUNTIME\|*)
+                            IFS='|' read -r _ runtime managed_state <<< "$line"
+                            case "$runtime" in
+                                claude) command_name="claude"; adapter="CLAUDE.md" ;;
+                                antigravity|gemini) command_name="agy"; adapter="GEMINI.md" ;;
+                                qwen) command_name="qwen"; adapter="QWEN.md" ;;
+                                gemma) command_name=""; adapter="" ;;
+                                *) echo "FAIL runtime: unknown selected runtime '$runtime'. Remediation: repair the manifest." >&2; doctor_status=1; continue ;;
+                            esac
+                            if [ "$runtime" = gemma ]; then
+                                if [ ! -f "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ] || [ -L "$DEST_DIR/docs/templates/1. Agent System Prompt Template.md" ]; then
+                                    echo "FAIL runtime gemma: the required system-prompt template is missing. Remediation: restore docs/templates/1. Agent System Prompt Template.md with setup.sh --update." >&2
+                                else
+                                    echo "FAIL runtime gemma: host-level system-prompt injection cannot be verified from this repository. Remediation: verify the host injects docs/templates/1. Agent System Prompt Template.md before enabling write tools." >&2
+                                fi
+                                doctor_status=1
+                                continue
                             fi
+                            if [ "$managed_state" != managed ]; then
+                                echo "WARN runtime $runtime: adapter is user-owned or not managed; preserving it while checking its minimum contract."
+                            fi
+                            if [ ! -f "$DEST_DIR/$adapter" ] || [ -L "$DEST_DIR/$adapter" ]; then
+                                echo "FAIL runtime $runtime: missing regular $adapter. Remediation: restore the managed adapter with setup.sh --update or add a regular user-owned adapter that delegates to AGENTS.md." >&2
+                                doctor_status=1
+                            elif ! grep -Fq "AGENTS.md" "$DEST_DIR/$adapter"; then
+                                echo "FAIL runtime $runtime: $adapter does not delegate to AGENTS.md. Remediation: restore the managed adapter or review the custom adapter." >&2
+                                doctor_status=1
+                            elif ! command -v "$command_name" >/dev/null 2>&1; then
+                                echo "FAIL runtime $runtime: command '$command_name' is unavailable. Remediation: install/enable that runtime or remove it from the selected runtime configuration." >&2
+                                doctor_status=1
+                            else
+                                echo "PASS runtime $runtime: $adapter and '$command_name' are available"
+                            fi
+                            ;;
+                        TOOL\|*)
+                            IFS='|' read -r _ tool_path tool_state <<< "$line"
+                            if [ "$tool_state" = managed ]; then
+                                if [ ! -f "$DEST_DIR/$tool_path" ] || [ -L "$DEST_DIR/$tool_path" ]; then
+                                    echo "FAIL tools: missing or symlinked managed tool $tool_path. Remediation: restore managed tools with setup.sh --update." >&2
+                                    doctor_status=1
+                                    tools_ok=false
+                                fi
+                            else
+                                echo "WARN tools: $tool_path is user-owned or unmanaged; preserving without managed integrity check."
+                            fi
+                            ;;
+                        SKILLS_DISABLED)
+                            echo "INFO skills: disabled via --without-skills"
+                            ;;
+                        SKILLS_NONE_FOR_RUNTIME)
+                            echo "INFO skills: no repository skill directories apply to selected runtime(s)"
+                            ;;
+                        SKILLS_UNMANAGED)
+                            echo "WARN skills: no managed SDD skills recorded in manifest; run setup.sh --update to install /sdd-* skills or --without-skills to opt out."
+                            ;;
+                        SKILL_OK\|*)
+                            managed_skill_count=$((managed_skill_count + 1))
+                            ;;
+                        SKILL_FAIL\|*)
+                            skill_path="${line#SKILL_FAIL|}"
+                            managed_skill_count=$((managed_skill_count + 1))
+                            echo "FAIL skills: missing, symlinked, or corrupted managed skill $skill_path. Remediation: restore managed skills with setup.sh --update." >&2
                             doctor_status=1
-                            continue
-                        fi
-                        if [ "$managed_state" != managed ]; then
-                            echo "WARN runtime $runtime: adapter is user-owned or not managed; preserving it while checking its minimum contract."
-                        fi
-                        if [ ! -f "$DEST_DIR/$adapter" ] || [ -L "$DEST_DIR/$adapter" ]; then
-                            echo "FAIL runtime $runtime: missing regular $adapter. Remediation: restore the managed adapter with setup.sh --update or add a regular user-owned adapter that delegates to AGENTS.md." >&2
-                            doctor_status=1
-                        elif ! grep -Fq "AGENTS.md" "$DEST_DIR/$adapter"; then
-                            echo "FAIL runtime $runtime: $adapter does not delegate to AGENTS.md. Remediation: restore the managed adapter or review the custom adapter." >&2
-                            doctor_status=1
-                        elif ! command -v "$command_name" >/dev/null 2>&1; then
-                            echo "FAIL runtime $runtime: command '$command_name' is unavailable. Remediation: install/enable that runtime or remove it from the selected runtime configuration." >&2
-                            doctor_status=1
-                        else
-                            echo "PASS runtime $runtime: $adapter and '$command_name' are available"
-                        fi
-                        ;;
-                    *) echo "$line" ;;
-                esac
-            done <<< "$manifest_output"
+                            skills_ok=false
+                            ;;
+                        *) echo "$line" ;;
+                    esac
+                done <<< "$manifest_output"
+                if [ "$tools_ok" = true ]; then
+                    echo "PASS tools: managed downstream tools verified"
+                fi
+                if [ "$managed_skill_count" -gt 0 ] && [ "$skills_ok" = true ]; then
+                    echo "PASS skills: $managed_skill_count managed downstream SDD skill(s) verified"
+                fi
+                if [ -f "$DEST_DIR/tools/docs_validation.py" ] && [ ! -L "$DEST_DIR/tools/docs_validation.py" ]; then
+                    if grep -Fq "TOOL|tools/docs_validation.py|managed" <<< "$manifest_output"; then
+                        validator_module_dir="$DEST_DIR/tools"
+                        validator_check_allowed=true
+                    else
+                        echo "WARN spec readiness: tools/docs_validation.py is user-owned; skipping managed semantic spec checks."
+                    fi
+                fi
+            fi
         fi
     fi
-    if python3 - "$DEST_DIR" <<'PY'
+    if python3 -B - "$DEST_DIR" <<'PY'
 import re
 import sys
 from pathlib import Path
 from urllib.parse import unquote
+
+def strip_code(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    out = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line in lines:
+        m = re.match(r"^[ \t]*(`{3,}|~{3,})([^\n]*)$", line)
+        if not in_fence:
+            if m:
+                marker, info = m.group(1), m.group(2)
+                if not (marker[0] == "`" and "`" in info):
+                    in_fence = True
+                    fence_char = marker[0]
+                    fence_len = len(marker)
+                    out.append("\n")
+                    continue
+            out.append(line)
+        else:
+            close_m = re.match(r"^[ \t]*(" + re.escape(fence_char) + r"{" + str(fence_len) + r",})[ \t]*\r?\n?$", line)
+            if close_m:
+                in_fence = False
+            out.append("\n")
+    joined = "".join(out)
+    return re.sub(r"(`+)([^\n]*?)\1", "", joined)
 
 root = Path(sys.argv[1]).resolve()
 missing = []
 for note in root.rglob("*.md"):
     if ".git" in note.parts:
         continue
-    for target in re.findall(r"(?<!!)(?:!?)\[[^]]*\]\(([^)]+)\)", note.read_text(encoding="utf-8", errors="replace")):
+    cleaned = strip_code(note.read_text(encoding="utf-8", errors="replace"))
+    for target in re.findall(r"(?<!!)(?:!?)\[[^]]*\]\(([^)]+)\)", cleaned):
         target = target.split("#", 1)[0].strip().strip("<>")
         if not target or "://" in target or target.startswith(("mailto:", "file:")):
             continue
@@ -188,6 +466,41 @@ PY
     else
         echo "Remediation: repair the reported Markdown link(s), or rerun setup.sh --update for template-managed documentation." >&2
         doctor_status=1
+    fi
+    if [ "$validator_check_allowed" = true ] && [ -d "$DEST_DIR/docs/current" ]; then
+        if python3 -B - "$DEST_DIR" "$validator_module_dir" <<'PY'
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+root = Path(sys.argv[1]).resolve()
+sys.path.insert(0, sys.argv[2])
+
+from docs_validation import (
+    validate_clarify_gate,
+    validate_feature_specs,
+    validate_links,
+    validate_mermaid,
+)
+
+docs_root = root / "docs"
+current_root = docs_root / "current"
+files = sorted(current_root.rglob("*.md"))
+if files:
+    validate_links(root, docs_root, files)
+    validate_mermaid(root, files)
+    validate_clarify_gate(root, files)
+    warnings = validate_feature_specs(root, current_root / "05 - Product Features", require_tasks=False)
+    for warning in warnings:
+        print(f"WARN spec readiness: {warning}")
+print("PASS spec readiness: Clarify gate, Mermaid structure, and cross-spec traceability verified")
+PY
+        then
+            :
+        else
+            echo "FAIL spec readiness: semantic documentation validation failed. Remediation: resolve [NEEDS CLARIFICATION] markers, open checkboxes, approval frontmatter, or AC traceability mismatches, then rerun 'python3 tools/validate-docs.py'." >&2
+            doctor_status=1
+        fi
     fi
     if [ "$doctor_status" -eq 0 ]; then
         echo "Doctor result: READY"
@@ -315,6 +628,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --with-advanced-docs) WITH_ADVANCED_DOCS=true ;;
         --with-legacy-agents) WITH_LEGACY_AGENTS=true ;;
+        --without-skills)
+            WITH_SKILLS=false
+            WITHOUT_SKILLS_PROVIDED=true
+            ;;
         --models)
             [ "$MODELS_OPTION_PROVIDED" = false ] || { echo "Error: --models can only be provided once." >&2; exit 1; }
             shift
@@ -328,14 +645,27 @@ while [ "$#" -gt 0 ]; do
             SELECTED_MODELS="${1#--models=}"
             [ -n "$SELECTED_MODELS" ] || { echo "Error: --models requires a value." >&2; exit 1; }
             ;;
+        --preset)
+            [ "$PRESET_OPTION_PROVIDED" = false ] || { echo "Error: --preset can only be provided once." >&2; exit 1; }
+            shift
+            [ "$#" -gt 0 ] && [ -n "$1" ] || { echo "Error: --preset requires a preset name." >&2; exit 1; }
+            PRESET_OPTION_PROVIDED=true
+            PRESET_NAME="$1"
+            ;;
+        --preset=*)
+            [ "$PRESET_OPTION_PROVIDED" = false ] || { echo "Error: --preset can only be provided once." >&2; exit 1; }
+            PRESET_OPTION_PROVIDED=true
+            PRESET_NAME="${1#--preset=}"
+            [ -n "$PRESET_NAME" ] || { echo "Error: --preset requires a preset name." >&2; exit 1; }
+            ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Error: Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
     shift
 done
 
-if [ "$DOCTOR" = true ] && { [ "$UPDATE" = true ] || [ "$DRY_RUN" = true ] || [ -n "$MIGRATION_PLAN" ]; }; then
-    echo "Error: --doctor cannot be combined with --update, --dry-run, or --migration-plan." >&2
+if [ "$DOCTOR" = true ] && { [ "$UPDATE" = true ] || [ "$DRY_RUN" = true ] || [ -n "$MIGRATION_PLAN" ] || [ "$PRESET_OPTION_PROVIDED" = true ] || [ "$WITHOUT_SKILLS_PROVIDED" = true ]; }; then
+    echo "Error: --doctor cannot be combined with --update, --dry-run, --migration-plan, --preset, or --without-skills." >&2
     exit 1
 fi
 
@@ -393,6 +723,7 @@ select_update_models() {
     local inferred_models
     local prior_advanced
     local prior_legacy
+    local prior_skills
 
     if [ "$MODELS_OPTION_PROVIDED" = true ]; then
         echo "Error: --update derives runtime adapters from the installed manifest; use a normal install to add a new runtime adapter." >&2
@@ -441,17 +772,49 @@ if managed_profiles is None:
     managed_profiles = ["core"]
 elif not isinstance(managed_profiles, list) or any(profile not in {"core", "--with-advanced-docs", "--with-legacy-agents"} for profile in managed_profiles):
     raise ValueError("manifest has invalid managed_profiles")
-print("|".join([",".join(models or known), str("--with-advanced-docs" in managed_profiles).lower(), str("--with-legacy-agents" in managed_profiles).lower(), ",".join(managed), ",".join(managed_profiles)]))
+if "default_preset" in manifest and manifest["default_preset"] is not None:
+    import re
+    if not isinstance(manifest["default_preset"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", manifest["default_preset"]):
+        raise ValueError("manifest has invalid default_preset")
+if "skills_enabled" in manifest and not isinstance(manifest["skills_enabled"], bool):
+    raise ValueError("manifest has invalid skills_enabled")
+skills_enabled = manifest.get("skills_enabled", True)
+print("|".join([",".join(models or known), str("--with-advanced-docs" in managed_profiles).lower(), str("--with-legacy-agents" in managed_profiles).lower(), ",".join(managed), ",".join(managed_profiles), str(skills_enabled).lower()]))
 PY
     )"; then
         echo "Error: --update requires a valid template-owned template-manifest.json." >&2
         exit 1
     fi
-    IFS='|' read -r inferred_models prior_advanced prior_legacy UPDATE_MANAGED_ADAPTER_MODELS MANAGED_PROFILES <<< "$update_metadata"
+    IFS='|' read -r inferred_models prior_advanced prior_legacy UPDATE_MANAGED_ADAPTER_MODELS MANAGED_PROFILES prior_skills <<< "$update_metadata"
     SELECTED_MODELS="$inferred_models"
     [ "$prior_advanced" = true ] && WITH_ADVANCED_DOCS=true
     [ "$prior_legacy" = true ] && WITH_LEGACY_AGENTS=true
+    if [ "$WITHOUT_SKILLS_PROVIDED" = false ]; then
+        WITH_SKILLS="$prior_skills"
+    fi
     validate_models
+}
+
+validate_preset_option() {
+    local current_path
+    local part
+
+    [ "$PRESET_OPTION_PROVIDED" = true ] || return 0
+    if [[ ! "$PRESET_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+        echo "Error: Invalid --preset '$PRESET_NAME'. Expected lowercase kebab-case slug." >&2
+        exit 1
+    fi
+    case "$PRESET_NAME" in
+        general|web-api|cli-tool|ai-agent) return 0 ;;
+    esac
+    current_path="$DEST_DIR"
+    for part in "docs" "templates" "presets" "$PRESET_NAME"; do
+        current_path="$current_path/$part"
+        if [ -L "$current_path" ] || [ ! -d "$current_path" ]; then
+            echo "Error: Custom preset '$PRESET_NAME' requires an existing non-symlink directory at docs/templates/presets/$PRESET_NAME." >&2
+            exit 1
+        fi
+    done
 }
 
 if [ "$UPDATE" = true ]; then
@@ -459,6 +822,7 @@ if [ "$UPDATE" = true ]; then
 else
     select_models_interactively
 fi
+validate_preset_option
 
 cleanup_temporary_files() {
     local temporary_file
@@ -574,6 +938,12 @@ if not all(safe_path(path) for path in manifest["managed_paths"]):
     raise ValueError("existing manifest has unsafe managed_paths")
 if any(not isinstance(paths, list) or not all(safe_path(path) for path in paths) for paths in profiles.values()):
     raise ValueError("existing manifest has unsafe profile paths")
+if "default_preset" in manifest and manifest["default_preset"] is not None:
+    import re
+    if not isinstance(manifest["default_preset"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", manifest["default_preset"]):
+        raise ValueError("existing manifest has invalid default_preset")
+if "skills_enabled" in manifest and not isinstance(manifest["skills_enabled"], bool):
+    raise ValueError("existing manifest has invalid skills_enabled")
 
 requested = sys.argv[2].split(",")
 known = ["claude", "antigravity", "qwen", "gemma", "gemini"]
@@ -712,6 +1082,41 @@ collect_managed_adapter_models() {
     done
 }
 
+collect_managed_skill_paths() {
+    local mapping
+    local model
+    local prefix
+    local slug
+    local rel
+    local skipped_rel
+    local is_skipped_user
+
+    MANAGED_SKILL_PATHS=""
+    [ "$WITH_SKILLS" = true ] || return 0
+
+    for mapping in "claude:.claude" "antigravity:.agents" "qwen:.qwen"; do
+        model="${mapping%%:*}"
+        prefix="${mapping#*:}"
+        [[ ",$REQUESTED_MODELS," == *",$model,"* ]] || continue
+        for slug in "${SDD_SKILL_SLUGS[@]}"; do
+            rel="$prefix/skills/$slug/SKILL.md"
+            is_skipped_user=false
+            if [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ]; then
+                for skipped_rel in "${SKIPPED_USER_SKILL_PATHS[@]}"; do
+                    if [ "$skipped_rel" = "$rel" ]; then
+                        is_skipped_user=true
+                        break
+                    fi
+                done
+            fi
+            [ "$is_skipped_user" = false ] || continue
+            if [ -f "$DEST_DIR/$rel" ] && [ ! -L "$DEST_DIR/$rel" ] && cmp -s "$SRC_DIR/skills/$slug/SKILL.md" "$DEST_DIR/$rel"; then
+                MANAGED_SKILL_PATHS+="${MANAGED_SKILL_PATHS:+|}$rel"
+            fi
+        done
+    done
+}
+
 copy_selected_manifest() {
     if [ "$MANIFEST_UPDATE_ALLOWED" = false ]; then
         echo "SKIP (unmanaged manifest): template-manifest.json"
@@ -736,11 +1141,12 @@ copy_selected_manifest() {
     fi
 
     collect_managed_adapter_models
+    collect_managed_skill_paths
     GENERATED_MANIFEST="$(mktemp "$DEST_DIR/.ai-template-manifest.XXXXXX")"
     if ! cp -p "$SRC_DIR/template-manifest.json" "$GENERATED_MANIFEST"; then
         return 1
     fi
-    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" "$VALIDATOR_BUNDLE_MANAGED" <<'PY'
+    if ! python3 - "$SRC_DIR/template-manifest.json" "$MANIFEST_BASE" "$GENERATED_MANIFEST" "$REQUESTED_MODELS" "$MANAGED_ADAPTER_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" "$VALIDATOR_BUNDLE_MANAGED" "$NEW_FEATURE_MANAGED" "$EXPORT_TASKS_MANAGED" "$PRESET_OPTION_PROVIDED" "$PRESET_NAME" "$WITH_SKILLS" "$MANAGED_SKILL_PATHS" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -753,28 +1159,51 @@ managed = [model for model in sys.argv[5].split(",") if model]
 with_advanced = sys.argv[6] == "true"
 with_legacy = sys.argv[7] == "true"
 validator_bundle_managed = sys.argv[8] == "true"
+new_feature_managed = sys.argv[9] == "true"
+export_tasks_managed = sys.argv[10] == "true"
+preset_provided = sys.argv[11] == "true"
+preset_name = sys.argv[12]
+with_skills = sys.argv[13] == "true"
+managed_skill_list = [path for path in sys.argv[14].split("|") if path]
+managed_skill_set = set(managed_skill_list)
 adapter_models = {
     "CLAUDE.md": "claude",
     "GEMINI.md": "antigravity",
     "QWEN.md": "qwen",
 }
+all_skill_paths = {
+    f"{prefix}/skills/{slug}/SKILL.md"
+    for prefix in (".claude", ".agents", ".qwen")
+    for slug in (
+        "sdd-docs",
+        "sdd-specify",
+        "sdd-clarify",
+        "sdd-plan",
+        "sdd-tasks",
+        "sdd-analyze",
+        "sdd-implement",
+    )
+}
 
 data = json.loads(template_source.read_text())
 existing = json.loads(existing_source.read_text())
-installer_keys = {"template", "version", "managed_paths", "profiles", "requested_models", "selected_models", "managed_adapter_models"}
+installer_keys = {"template", "version", "skills_enabled", "managed_paths", "profiles", "requested_models", "selected_models", "managed_adapter_models"}
 for key, value in existing.items():
     if key not in installer_keys:
         data[key] = value
+data["skills_enabled"] = with_skills
+if preset_provided:
+    data["default_preset"] = preset_name
 
 existing_profiles = existing.get("profiles", {})
 for name, profile in existing_profiles.items():
     if name not in {"core", "--with-advanced-docs", "--with-legacy-agents"}:
         data["profiles"][name] = profile
 for path in existing_profiles.get("core", []):
-    if path not in data["profiles"]["core"] and path not in adapter_models:
+    if path not in data["profiles"]["core"] and path not in adapter_models and path not in all_skill_paths:
         data["profiles"]["core"].append(path)
 for path in existing.get("managed_paths", []):
-    if path not in data["managed_paths"] and path not in adapter_models:
+    if path not in data["managed_paths"] and path not in adapter_models and path not in all_skill_paths:
         data["managed_paths"].append(path)
 data["requested_models"] = requested
 data["selected_models"] = requested  # Backward-compatible alias; prefer requested_models.
@@ -789,24 +1218,34 @@ if with_advanced:
 if with_legacy:
     managed_profiles.add("--with-legacy-agents")
 data["managed_profiles"] = [profile for profile in ["core", "--with-advanced-docs", "--with-legacy-agents"] if profile in managed_profiles]
-data["managed_paths"] = [
-    path for path in data["managed_paths"]
-    if path not in adapter_models or adapter_models[path] in managed
-]
-data["profiles"]["core"] = [
-    path for path in data["profiles"]["core"]
-    if path not in adapter_models or adapter_models[path] in managed
-]
+def keep_core_path(path: str) -> bool:
+    return (path not in adapter_models or adapter_models[path] in managed) and (
+        path not in all_skill_paths or (with_skills and path in managed_skill_set)
+    )
+data["managed_paths"] = [path for path in data["managed_paths"] if keep_core_path(path)]
+data["profiles"]["core"] = [path for path in data["profiles"]["core"] if keep_core_path(path)]
 for adapter, model in adapter_models.items():
     if model in managed:
         if adapter not in data["managed_paths"]:
             data["managed_paths"].append(adapter)
         if adapter not in data["profiles"]["core"]:
             data["profiles"]["core"].append(adapter)
+if with_skills:
+    for skill_path in managed_skill_list:
+        if skill_path not in data["managed_paths"]:
+            data["managed_paths"].append(skill_path)
+        if skill_path not in data["profiles"]["core"]:
+            data["profiles"]["core"].append(skill_path)
 validator_paths = {"tools/docs_validation.py", "tools/validate-docs.py"}
 if not validator_bundle_managed:
     data["managed_paths"] = [path for path in data["managed_paths"] if path not in validator_paths]
     data["profiles"]["core"] = [path for path in data["profiles"]["core"] if path not in validator_paths]
+if not new_feature_managed:
+    data["managed_paths"] = [path for path in data["managed_paths"] if path != "tools/new-feature.py"]
+    data["profiles"]["core"] = [path for path in data["profiles"]["core"] if path != "tools/new-feature.py"]
+if not export_tasks_managed:
+    data["managed_paths"] = [path for path in data["managed_paths"] if path != "tools/export-tasks.py"]
+    data["profiles"]["core"] = [path for path in data["profiles"]["core"] if path != "tools/export-tasks.py"]
 destination.write_text(json.dumps(data, indent=2) + "\n")
 PY
     then
@@ -1052,6 +1491,131 @@ check_destination_path() {
     done
 }
 
+prepare_sdd_tools() {
+    local ownership_pair
+
+    NEW_FEATURE_MANAGED=true
+    EXPORT_TASKS_MANAGED=true
+    [ "$FORCE" = true ] && return 0
+
+    ownership_pair="$(python3 -B - "$DEST_DIR" "$UPDATE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+dest = Path(sys.argv[1])
+is_update = sys.argv[2] == "true"
+manifest_path = dest / "template-manifest.json"
+template_owned = False
+managed: set[str] = set()
+core: set[str] = set()
+if manifest_path.is_file() and not manifest_path.is_symlink():
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(manifest, dict) and manifest.get("template") == "ai-agent-obsidian-project-template":
+            template_owned = True
+            managed = set(manifest.get("managed_paths", []))
+            core = set(manifest.get("profiles", {}).get("core", []))
+    except (OSError, ValueError, TypeError):
+        template_owned = False
+
+results = []
+for rel in ("tools/new-feature.py", "tools/export-tasks.py"):
+    target = dest / rel
+    exists_or_link = target.exists() or target.is_symlink()
+    if template_owned and rel in managed and rel in core:
+        if is_update or not target.is_symlink():
+            results.append("true")
+        else:
+            results.append("false")
+    elif not exists_or_link:
+        results.append("true")
+    else:
+        results.append("false")
+print("|".join(results))
+PY
+    )"
+    IFS='|' read -r NEW_FEATURE_MANAGED EXPORT_TASKS_MANAGED <<< "$ownership_pair"
+}
+
+prepare_sdd_skills() {
+    local status_lines
+    local line
+    local action
+    local rel
+
+    SCHEDULED_SKILL_PATHS=()
+    SKIPPED_USER_SKILL_PATHS=()
+    PRESERVED_OPTOUT_SKILL_PATHS=()
+
+    status_lines="$(python3 -B - "$DEST_DIR" "$SELECTED_MODELS" "$WITH_SKILLS" "$FORCE" "$UPDATE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+dest = Path(sys.argv[1])
+selected = [m for m in sys.argv[2].split(",") if m]
+with_skills = sys.argv[3] == "true"
+force = sys.argv[4] == "true"
+is_update = sys.argv[5] == "true"
+
+runtime_prefixes = {
+    "claude": ".claude",
+    "antigravity": ".agents",
+    "qwen": ".qwen",
+}
+slugs = (
+    "sdd-docs",
+    "sdd-specify",
+    "sdd-clarify",
+    "sdd-plan",
+    "sdd-tasks",
+    "sdd-analyze",
+    "sdd-implement",
+)
+
+prior_managed: set[str] = set()
+prior_core: set[str] = set()
+manifest_path = dest / "template-manifest.json"
+if manifest_path.is_file() and not manifest_path.is_symlink():
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(manifest, dict) and manifest.get("template") == "ai-agent-obsidian-project-template":
+            prior_managed = set(manifest.get("managed_paths", []))
+            prior_core = set(manifest.get("profiles", {}).get("core", []))
+    except (OSError, ValueError, TypeError):
+        pass
+
+for model in ("claude", "antigravity", "qwen"):
+    if model not in selected:
+        continue
+    prefix = runtime_prefixes[model]
+    for slug in slugs:
+        rel = f"{prefix}/skills/{slug}/SKILL.md"
+        target = dest / rel
+        exists_or_link = target.exists() or target.is_symlink()
+        if not with_skills:
+            if is_update and exists_or_link:
+                print(f"OPTOUT|{rel}")
+            continue
+        if force or not is_update or not exists_or_link or (rel in prior_managed and rel in prior_core):
+            print(f"SCHEDULE|{rel}")
+        else:
+            print(f"USER_OWNED|{rel}")
+PY
+    )"
+
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        IFS='|' read -r action rel <<< "$line"
+        case "$action" in
+            SCHEDULE) SCHEDULED_SKILL_PATHS+=("$rel") ;;
+            USER_OWNED) SKIPPED_USER_SKILL_PATHS+=("$rel") ;;
+            OPTOUT) PRESERVED_OPTOUT_SKILL_PATHS+=("$rel") ;;
+        esac
+    done <<< "$status_lines"
+}
+
 preflight_destinations() {
     local source_file
     local relative_path
@@ -1059,6 +1623,8 @@ preflight_destinations() {
 
     prepare_manifest_models || failed=true
     prepare_validator_bundle
+    prepare_sdd_tools
+    prepare_sdd_skills
 
     for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "task-evidence/.gitkeep"; do
         check_destination_path "$relative_path" || failed=true
@@ -1068,6 +1634,12 @@ preflight_destinations() {
             check_destination_path "$relative_path" || failed=true
         done
     fi
+    if [ "$NEW_FEATURE_MANAGED" = true ]; then
+        check_destination_path "tools/new-feature.py" || failed=true
+    fi
+    if [ "$EXPORT_TASKS_MANAGED" = true ]; then
+        check_destination_path "tools/export-tasks.py" || failed=true
+    fi
     if adapter_selected_for_copy claude; then
         check_destination_path "CLAUDE.md" || failed=true
     fi
@@ -1076,6 +1648,11 @@ preflight_destinations() {
     fi
     if adapter_selected_for_copy qwen; then
         check_destination_path "QWEN.md" || failed=true
+    fi
+    if [ "${#SCHEDULED_SKILL_PATHS[@]}" -gt 0 ]; then
+        for relative_path in "${SCHEDULED_SKILL_PATHS[@]}"; do
+            check_destination_path "$relative_path" || failed=true
+        done
     fi
     if [ "$WITH_LEGACY_AGENTS" = true ]; then
         for relative_path in "${OPTIONAL_LEGACY_PATHS[@]}"; do
@@ -1141,10 +1718,46 @@ else
     plan_record "manual" "tools/validate-docs.py" "user-owned validator bundle will be preserved"
     SKIPPED_COUNT=$((SKIPPED_COUNT + 2))
 fi
+if [ "$NEW_FEATURE_MANAGED" = true ]; then
+    copy_file "$SRC_DIR/tests/new-feature.py" "tools/new-feature.py"
+else
+    echo "SKIP (user-owned tool): tools/new-feature.py"
+    plan_record "manual" "tools/new-feature.py" "user-owned SDD tool will be preserved"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+fi
+if [ "$EXPORT_TASKS_MANAGED" = true ]; then
+    copy_file "$SRC_DIR/tests/export-tasks.py" "tools/export-tasks.py"
+else
+    echo "SKIP (user-owned tool): tools/export-tasks.py"
+    plan_record "manual" "tools/export-tasks.py" "user-owned SDD tool will be preserved"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+fi
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
     for relative_path in "${OPTIONAL_LEGACY_PATHS[@]}"; do
         copy_file "$SRC_DIR/AGENTS.md" "$relative_path"
+    done
+fi
+
+if [ "${#SCHEDULED_SKILL_PATHS[@]}" -gt 0 ]; then
+    for relative_path in "${SCHEDULED_SKILL_PATHS[@]}"; do
+        skill_slug="${relative_path#*/skills/}"
+        skill_slug="${skill_slug%/SKILL.md}"
+        copy_file "$SRC_DIR/skills/$skill_slug/SKILL.md" "$relative_path"
+    done
+fi
+if [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ]; then
+    for relative_path in "${SKIPPED_USER_SKILL_PATHS[@]}"; do
+        echo "SKIP (user-owned skill): $relative_path"
+        plan_record "manual" "$relative_path" "user-owned skill will be preserved"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    done
+fi
+if [ "${#PRESERVED_OPTOUT_SKILL_PATHS[@]}" -gt 0 ]; then
+    for relative_path in "${PRESERVED_OPTOUT_SKILL_PATHS[@]}"; do
+        echo "SKIP (skills disabled): $relative_path"
+        plan_record "preserve" "$relative_path" "existing skill file preserved on disk (--without-skills)"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
     done
 fi
 
@@ -1183,7 +1796,12 @@ echo ""
 echo "Next steps:"
 echo "1. Open this project folder in Obsidian as a Vault."
 echo "2. Confirm your selected runtime loads its project instructions; Gemma/custom API harnesses must inject docs/templates/1. Agent System Prompt Template.md."
+next_step_num=3
+if [ "$WITH_SKILLS" = true ] && { model_selected claude || model_selected antigravity || model_selected qwen; }; then
+    echo "$next_step_num. In Claude Code, Antigravity CLI, or Qwen Code chat, type /sdd-docs to initialize project docs or /sdd-specify <feature-slug> to start a feature."
+    next_step_num=$((next_step_num + 1))
+fi
 if model_selected gemma; then
-    echo "3. Gemma/custom API selected: no repository filename is auto-loaded. Configure the host to inject docs/templates/1. Agent System Prompt Template.md before enabling write tools."
+    echo "$next_step_num. Gemma/custom API selected: no repository filename is auto-loaded. Configure the host to inject docs/templates/1. Agent System Prompt Template.md before enabling write tools."
 fi
 echo "----------------------------------------"

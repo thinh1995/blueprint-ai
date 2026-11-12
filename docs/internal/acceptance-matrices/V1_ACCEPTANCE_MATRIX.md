@@ -10,7 +10,7 @@ Scope: safe installer, core/advanced docs, evidence-first rules, per-task eviden
 | Template docs | Agent rules, approval fields, task-evidence template, inventory trust metadata and links are present. | `bash tests/validate-docs.sh` | Pass — 2026-07-17 |
 | Task evidence | Completed records require identity, revision, AC validation, environment, reviewer and verified output artifact hash. | `python3 tests/validate-task-evidence.py` | Pass — 2026-07-17 |
 | Downstream use | Installed project receives the task-evidence validator. | `bash tests/setup.sh` | Pass — 2026-07-17 |
-| CI template | Ubuntu/macOS matrix, read-only permission, timeout, syntax/tests/docs/task-evidence validation are configured. | Review [.github/workflows/ai-template-validation.yml](.github/workflows/ai-template-validation.yml) | Pass — 2026-07-17 |
+| CI template | Ubuntu/macOS matrix, read-only permission, timeout, syntax/tests/docs/task-evidence validation are configured. | Review [.github/workflows/ai-template-validation.yml](../../../.github/workflows/ai-template-validation.yml) | Pass — 2026-07-17 |
 
 ## V1 non-goals / backlog
 

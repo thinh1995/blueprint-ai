@@ -12,3 +12,4 @@ This fictional, fully linked example shows the minimum AI Agent documentation pa
 1. [[1. Product Spec]] — business requirements, process flow, and traceability.
 2. [[2. Tech Spec]] — agent interaction, state, data boundary, and implementation mapping.
 3. [[3. QA Spec]] — acceptance and AI-agent safety coverage.
+4. [[4. Tasks]] — vertical execution slices, readiness gate, and parallel path ownership.

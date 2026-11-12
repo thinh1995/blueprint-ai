@@ -50,7 +50,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((9 + core_doc_count))
+expected_file_count=$((32 + core_doc_count))
 
 (
     cd "$target"
@@ -70,11 +70,12 @@ assert_file_contains "$target/AGENTS.md" "custom rules"
 [ -f "$target/docs/current/01 - Overview/BA Foundation.md" ] || fail "default install did not copy BA Foundation"
 [ -f "$target/docs/current/08 - Diagram Standards/Diagram Standards.md" ] || fail "default install did not copy Diagram Standards"
 [ -f "$target/docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" ] || fail "default install did not copy documentation update prompt"
+[ -f "$target/docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md" ] || fail "default install did not copy Spec-Driven Feature Prompts"
 [ -f "$target/docs/current/05 - Product Features/README.md" ] || fail "default install did not create Product Features workspace"
-for template_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md" "README.md"; do
+for template_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md" "4. Tasks.md" "README.md"; do
     [ -f "$target/docs/templates/feature-spec-template/$template_file" ] || fail "default install did not copy feature template: $template_file"
 done
-for sample_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md"; do
+for sample_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md" "4. Tasks.md"; do
     [ -f "$target/docs/templates/examples/ai-support-agent/$sample_file" ] || fail "default install did not copy AI Agent sample: $sample_file"
 done
 [ -f "$target/docs/templates/3. Task Evidence Template.md" ] || fail "default install did not copy task evidence template"
@@ -89,6 +90,12 @@ fi
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/GEMINI.md" ] || fail "default install did not copy GEMINI.md"
 [ -f "$target/QWEN.md" ] || fail "default install did not copy QWEN.md"
+for skill_dir in ".claude/skills" ".agents/skills" ".qwen/skills"; do
+    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement; do
+        [ -f "$target/$skill_dir/$skill_slug/SKILL.md" ] || fail "default install did not copy $skill_dir/$skill_slug/SKILL.md"
+    done
+done
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["skills_enabled"] is True' "$target/template-manifest.json"
 assert_file_contains "$target/GEMINI.md" "Antigravity CLI Project Instructions"
 assert_file_contains "$target/GEMINI.md" "AGENTS.md"
 assert_file_contains "$target/GEMINI.md" "@AGENTS.md"
@@ -96,6 +103,8 @@ assert_file_contains "$target/QWEN.md" "AGENTS.md"
 [ -f "$target/tools/validate-task-evidence.py" ] || fail "default install did not copy task-evidence validator"
 [ -f "$target/tools/docs_validation.py" ] || fail "default install did not copy shared documentation validator"
 [ -f "$target/tools/validate-docs.py" ] || fail "default install did not copy downstream docs validator"
+[ -f "$target/tools/new-feature.py" ] || fail "default install did not copy feature scaffolder"
+[ -f "$target/tools/export-tasks.py" ] || fail "default install did not copy task exporter"
 python3 "$target/tools/validate-docs.py" || fail "downstream docs validator failed after default install"
 python3 "$target/tools/validate-task-evidence.py" || fail "downstream task-evidence validator failed without task records"
 
@@ -110,14 +119,22 @@ assert_file_contains "$TEST_DIR/selected-models-install.txt" "Selected model run
 [ -f "$selected_models_target/GEMINI.md" ] || fail "selected-model install did not copy GEMINI.md"
 [ -f "$selected_models_target/QWEN.md" ] || fail "selected-model install did not copy QWEN.md"
 [ ! -e "$selected_models_target/CLAUDE.md" ] || fail "selected-model install copied unselected CLAUDE.md"
+[ -f "$selected_models_target/.agents/skills/sdd-docs/SKILL.md" ] || fail "selected-model install did not copy Antigravity skills"
+[ -f "$selected_models_target/.qwen/skills/sdd-docs/SKILL.md" ] || fail "selected-model install did not copy Qwen skills"
+[ ! -e "$selected_models_target/.claude" ] || fail "selected-model install created unselected .claude directory"
 python3 - "$selected_models_target/template-manifest.json" <<'PY'
 import json
 import sys
 
 manifest = json.load(open(sys.argv[1]))
 assert manifest["selected_models"] == ["antigravity", "qwen"]
+assert manifest["skills_enabled"] is True
 assert "CLAUDE.md" not in manifest["managed_paths"]
 assert "CLAUDE.md" not in manifest["profiles"]["core"]
+assert not any(p.startswith(".claude/skills/") for p in manifest["managed_paths"])
+assert not any(p.startswith(".claude/skills/") for p in manifest["profiles"]["core"])
+assert ".agents/skills/sdd-specify/SKILL.md" in manifest["managed_paths"]
+assert ".qwen/skills/sdd-specify/SKILL.md" in manifest["managed_paths"]
 assert "GEMINI.md" in manifest["profiles"]["core"]
 assert "QWEN.md" in manifest["profiles"]["core"]
 PY
@@ -132,6 +149,9 @@ assert_file_contains "$TEST_DIR/gemma-models-install.txt" "Gemma/custom API sele
 [ ! -e "$gemma_models_target/CLAUDE.md" ] || fail "Gemma-only install copied CLAUDE.md"
 [ ! -e "$gemma_models_target/GEMINI.md" ] || fail "Gemma-only install copied GEMINI.md"
 [ ! -e "$gemma_models_target/QWEN.md" ] || fail "Gemma-only install copied QWEN.md"
+[ ! -e "$gemma_models_target/.claude" ] || fail "Gemma-only install created .claude skill directory"
+[ ! -e "$gemma_models_target/.agents" ] || fail "Gemma-only install created .agents skill directory"
+[ ! -e "$gemma_models_target/.qwen" ] || fail "Gemma-only install created .qwen skill directory"
 python3 - "$gemma_models_target/template-manifest.json" <<'PY'
 import json
 import sys
@@ -139,6 +159,8 @@ import sys
 manifest = json.load(open(sys.argv[1]))
 assert manifest["selected_models"] == ["gemma"]
 assert all(adapter not in manifest["profiles"]["core"] for adapter in ["CLAUDE.md", "GEMINI.md", "QWEN.md"])
+assert not any("/skills/" in path for path in manifest["managed_paths"])
+assert not any("/skills/" in path for path in manifest["profiles"]["core"])
 PY
 
 invalid_models_target="$TEST_DIR/invalid-models-target"
@@ -438,7 +460,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "task-evidence" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "tools/new-feature.py" "tools/export-tasks.py" "task-evidence" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -453,7 +475,12 @@ source_overrides = {
     "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
     "tools/docs_validation.py": "tests/docs_validation.py",
     "tools/validate-docs.py": "tests/validate-project-docs.py",
+    "tools/new-feature.py": "tests/new-feature.py",
+    "tools/export-tasks.py": "tests/export-tasks.py",
 }
+for prefix in (".claude", ".agents", ".qwen"):
+    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement"):
+        source_overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
 expected: set[str] = set()
 for relative in profile:
     source = template_root / source_overrides.get(relative, relative)
@@ -481,7 +508,10 @@ done
 cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/validate-task-evidence.py"
 cp "$TEMPLATE_DIR/tests/docs_validation.py" "$metadata_template/tests/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/validate-project-docs.py"
+cp "$TEMPLATE_DIR/tests/new-feature.py" "$metadata_template/tests/new-feature.py"
+cp "$TEMPLATE_DIR/tests/export-tasks.py" "$metadata_template/tests/export-tasks.py"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
+cp -R "$TEMPLATE_DIR/skills" "$metadata_template/skills"
 touch "$metadata_template/task-evidence/.gitkeep"
 printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 (
@@ -499,7 +529,10 @@ done
 cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$invalid_profile_template/tests/validate-task-evidence.py"
 cp "$TEMPLATE_DIR/tests/docs_validation.py" "$invalid_profile_template/tests/docs_validation.py"
 cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tests/validate-project-docs.py"
+cp "$TEMPLATE_DIR/tests/new-feature.py" "$invalid_profile_template/tests/new-feature.py"
+cp "$TEMPLATE_DIR/tests/export-tasks.py" "$invalid_profile_template/tests/export-tasks.py"
 cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
+cp -R "$TEMPLATE_DIR/skills" "$invalid_profile_template/skills"
 touch "$invalid_profile_template/task-evidence/.gitkeep"
 python3 - "$invalid_profile_template/template-manifest.json" <<'PY'
 import json
@@ -996,7 +1029,7 @@ PY
 strict_evidence_dir="$TEST_DIR/strict-evidence"
 mkdir -p "$strict_evidence_dir"
 strict_source_revision="$(git -C "$TEMPLATE_DIR" rev-list --max-parents=0 HEAD)"
-strict_checksum="$(shasum -a 256 "$TEMPLATE_DIR/V4_ACCEPTANCE_MATRIX.md" | awk '{print $1}')"
+strict_checksum="$(shasum -a 256 "$TEMPLATE_DIR/docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md" | awk '{print $1}')"
 printf '%s\n' \
     '---' \
     'status: completed' \
@@ -1008,7 +1041,7 @@ printf '%s\n' \
     'reviewer: fixture' \
     'environment: local/dev' \
     "output_artifact_sha256: $strict_checksum" \
-    'output_artifact_path: V4_ACCEPTANCE_MATRIX.md' \
+    'output_artifact_path: docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md' \
     '---' \
     '| AC-01 | fixture | fixture | PASS / 0 |' \
     > "$strict_evidence_dir/working-tree-fallback.md"
@@ -1079,5 +1112,519 @@ assert_file_contains "$TEST_DIR/path-collision.txt" "Expected directory but foun
 assert_file_contains "$TEST_DIR/path-collision.txt" "No files were changed"
 [ ! -e "$collision_target/AGENTS.md" ] || fail "preflight wrote before rejecting a file-directory collision"
 [ ! -e "$collision_target/docs/current/Vault Index MOC.md" ] || fail "preflight copied docs before rejecting a file-directory collision"
+
+# --- v0.5.0 Spec-Driven Development Pack regression tests ---
+
+# 1. --preset on install & --update, custom preset directory guard, and custom preset preservation
+preset_bad_target="$TEST_DIR/preset-bad-target"
+mkdir -p "$preset_bad_target"
+if (
+    cd "$preset_bad_target"
+    bash "$TEMPLATE_DIR/setup.sh" --preset missing-custom
+) > "$TEST_DIR/preset-bad.txt" 2>&1; then
+    fail "setup accepted nonexistent custom preset directory"
+fi
+assert_file_contains "$TEST_DIR/preset-bad.txt" "docs/templates/presets/missing-custom"
+[ ! -e "$preset_bad_target/AGENTS.md" ] || fail "failed --preset wrote destination files"
+
+preset_target="$TEST_DIR/preset-target"
+mkdir -p "$preset_target"
+(
+    cd "$preset_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity --preset web-api
+) > "$TEST_DIR/preset-install.txt"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["default_preset"] == "web-api"' "$preset_target/template-manifest.json"
+
+(
+    cd "$preset_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --preset cli-tool
+) > "$TEST_DIR/preset-update.txt"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["default_preset"] == "cli-tool"' "$preset_target/template-manifest.json"
+
+(
+    cd "$preset_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/preset-bare-update.txt"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["default_preset"] == "cli-tool"' "$preset_target/template-manifest.json"
+
+mkdir -p "$preset_target/docs/templates/presets/team-api"
+printf '# Custom Team API — [Feature name]\n\n- [[1. Product Spec]]\n- [[2. Tech Spec]]\n- [[3. QA Spec]]\n- [[4. Tasks]]\n' \
+    > "$preset_target/docs/templates/presets/team-api/README.md"
+ln -s "$TEST_DIR" "$preset_target/docs/templates/presets/evil-symlink"
+if (
+    cd "$preset_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --preset evil-symlink
+) > "$TEST_DIR/preset-symlink.txt" 2>&1; then
+    fail "setup --update accepted symlinked custom preset directory"
+fi
+rm -f "$preset_target/docs/templates/presets/evil-symlink"
+(
+    cd "$preset_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --preset team-api
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/preset-custom-update.txt"
+[ -f "$preset_target/docs/templates/presets/team-api/README.md" ] || fail "update removed custom preset directory"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["default_preset"] == "team-api"' "$preset_target/template-manifest.json"
+
+# 2. tools/new-feature.py: 4-file default pack, auto-numbering, presets, --plain, --dry-run, empty draft source_revision, and immediate validate-docs.py pass
+python3 -B "$preset_target/tools/new-feature.py" --list-presets > "$TEST_DIR/list-presets.txt"
+assert_file_contains "$TEST_DIR/list-presets.txt" "web-api (built-in)"
+assert_file_contains "$TEST_DIR/list-presets.txt" "team-api (custom:"
+
+python3 -B "$preset_target/tools/new-feature.py" dry-check --preset general --dry-run > "$TEST_DIR/new-feature-dry.txt"
+[ ! -e "$preset_target/docs/current/05 - Product Features/001-dry-check" ] || fail "new-feature --dry-run created files"
+
+python3 -B "$preset_target/tools/new-feature.py" auth --preset general > "$TEST_DIR/nf-1.txt"
+python3 -B "$preset_target/tools/new-feature.py" billing --preset web-api > "$TEST_DIR/nf-2.txt"
+python3 -B "$preset_target/tools/new-feature.py" sync-cli --preset cli-tool > "$TEST_DIR/nf-3.txt"
+python3 -B "$preset_target/tools/new-feature.py" triage-bot --preset ai-agent > "$TEST_DIR/nf-4.txt"
+
+[ -d "$preset_target/docs/current/05 - Product Features/001-auth" ] || fail "new-feature did not create 001-auth"
+[ -d "$preset_target/docs/current/05 - Product Features/002-billing" ] || fail "new-feature did not create 002-billing"
+[ ! -e "$preset_target/docs/current/05 - Product Features/001-auth/README.md" ] || fail "new-feature copied template README.md by default"
+for spec_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md" "4. Tasks.md"; do
+    [ -f "$preset_target/docs/current/05 - Product Features/001-auth/$spec_file" ] || fail "missing $spec_file in 001-auth"
+    grep -Eq '^source_revision:[[:space:]]*$' "$preset_target/docs/current/05 - Product Features/001-auth/$spec_file" || fail "scaffolded draft spec had non-empty source_revision: $spec_file"
+done
+
+if python3 -B "$preset_target/tools/new-feature.py" auth > "$TEST_DIR/nf-dup.txt" 2>&1; then
+    fail "new-feature accepted duplicate slug auth"
+fi
+if python3 -B "$preset_target/tools/new-feature.py" "../evil" > "$TEST_DIR/nf-evil.txt" 2>&1; then
+    fail "new-feature accepted traversal slug"
+fi
+
+# Custom preset (default_preset == team-api from manifest) with --plain includes custom README.md (5 files)
+python3 -B "$preset_target/tools/new-feature.py" custom-svc --plain > "$TEST_DIR/nf-custom.txt"
+[ -f "$preset_target/docs/current/05 - Product Features/custom-svc/README.md" ] || fail "custom preset README.md was not scaffolded"
+[ "$(find "$preset_target/docs/current/05 - Product Features/custom-svc" -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 5 ] || fail "expected 5 files for custom preset with README.md"
+
+python3 -B "$preset_target/tools/validate-docs.py" > "$TEST_DIR/nf-validate.txt"
+assert_file_contains "$TEST_DIR/nf-validate.txt" "PASS: downstream documentation links and Mermaid structure"
+
+# 3. tools/export-tasks.py: draft gate, non-done default filter (--include-done), title prefix, and mock gh deduplication
+if python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" > "$TEST_DIR/export-draft-fail.txt" 2>&1; then
+    fail "export-tasks exported draft feature without --allow-draft"
+fi
+assert_file_contains "$TEST_DIR/export-draft-fail.txt" "--allow-draft"
+
+python3 -B - "$preset_target/docs/current/05 - Product Features/001-auth" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+feat = Path(sys.argv[1])
+for spec in ("1. Product Spec.md", "2. Tech Spec.md", "3. QA Spec.md", "4. Tasks.md"):
+    p = feat / spec
+    text = p.read_text(encoding="utf-8")
+    text = text.replace("status: draft", "status: approved", 1)
+    text = text.replace("approved_by:", "approved_by: product-lead", 1)
+    text = text.replace("approved_at:", "approved_at: 2026-11-12", 1)
+    text = text.replace("approval_evidence:", "approval_evidence: PR-101", 1)
+    text = text.replace("source_revision:", "source_revision: b8b83557c19217002b0586c052b68e2684706057", 1)
+    text = text.replace("- [ ]", "- [x]")
+    p.write_text(text, encoding="utf-8")
+
+tasks_p = feat / "4. Tasks.md"
+t_text = tasks_p.read_text(encoding="utf-8")
+t_text = re.sub(
+    r"^\| T-01 \|.*$",
+    "| T-01 | done | no | - | AC-01 | `src/auth/model.py` | Completed auth model | `pytest tests/test_model.py` |\n"
+    "| T-02 | todo | no | T-01 | AC-01 | `src/auth/api.py` | Wire login endpoint | `pytest tests/test_api.py` |",
+    t_text,
+    flags=re.M,
+)
+tasks_p.write_text(t_text, encoding="utf-8")
+PY
+
+python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --format json > "$TEST_DIR/export-default.json"
+python3 -B - "$TEST_DIR/export-default.json" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1]))
+assert [t["task_id"] for t in payload["tasks"]] == ["T-02"], payload
+assert payload["tasks"][0]["title"] == "[001-auth][T-02] Wire login endpoint"
+PY
+
+python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --include-done --format json > "$TEST_DIR/export-all.json"
+python3 -B - "$TEST_DIR/export-all.json" <<'PY'
+import json, sys
+payload = json.load(open(sys.argv[1]))
+assert [t["task_id"] for t in payload["tasks"]] == ["T-01", "T-02"], payload
+PY
+
+python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --format gh-commands --repo acme/demo > "$TEST_DIR/export-gh-cmds.txt"
+assert_file_contains "$TEST_DIR/export-gh-cmds.txt" "[001-auth][T-02] Wire login endpoint"
+
+if python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --apply-gh > "$TEST_DIR/export-no-repo.txt" 2>&1; then
+    fail "export-tasks --apply-gh succeeded without --repo"
+fi
+
+mkdir -p "$TEST_DIR/bin"
+cat > "$TEST_DIR/bin/gh" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+STORE="${MOCK_GH_STORE:?}"
+LOG="${MOCK_GH_LOG:?}"
+echo "$*" >> "$LOG"
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then
+    cat "$STORE"
+    exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "create" ]; then
+    title=""
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--title" ]; then
+            title="$2"
+            shift 2
+            continue
+        fi
+        shift
+    done
+    python3 -B - "$STORE" "$title" <<'PY'
+import json, sys
+path, title = sys.argv[1], sys.argv[2]
+items = json.load(open(path))
+num = len(items) + 1
+url = f"https://example.invalid/acme/demo/issues/{num}"
+items.append({"number": num, "title": title, "url": url})
+open(path, "w").write(json.dumps(items))
+print(url)
+PY
+    exit 0
+fi
+exit 1
+EOF
+chmod +x "$TEST_DIR/bin/gh"
+printf '[]\n' > "$TEST_DIR/mock-gh-store.json"
+: > "$TEST_DIR/mock-gh.log"
+
+MOCK_GH_STORE="$TEST_DIR/mock-gh-store.json" MOCK_GH_LOG="$TEST_DIR/mock-gh.log" PATH="$TEST_DIR/bin:$PATH" \
+    python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --apply-gh --repo acme/demo > "$TEST_DIR/apply-gh-1.txt"
+assert_file_contains "$TEST_DIR/apply-gh-1.txt" "CREATED: [001-auth][T-02]"
+
+MOCK_GH_STORE="$TEST_DIR/mock-gh-store.json" MOCK_GH_LOG="$TEST_DIR/mock-gh.log" PATH="$TEST_DIR/bin:$PATH" \
+    python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/001-auth" --apply-gh --repo acme/demo > "$TEST_DIR/apply-gh-2.txt"
+assert_file_contains "$TEST_DIR/apply-gh-2.txt" "SKIP: [001-auth][T-02] already exists"
+python3 -B -c 'import json, sys; assert len(json.load(open(sys.argv[1]))) == 1' "$TEST_DIR/mock-gh-store.json"
+
+# 4. Upgrading a v0.4.4 project: clean SDD install vs independent user-owned tools/export-tasks.py preservation
+v044_clean_target="$TEST_DIR/v044-clean-target"
+v044_partial_target="$TEST_DIR/v044-partial-target"
+mkdir -p "$v044_clean_target" "$v044_partial_target"
+(
+    cd "$v044_clean_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity >/dev/null
+)
+(
+    cd "$v044_partial_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity >/dev/null
+)
+for sim_dir in "$v044_clean_target" "$v044_partial_target"; do
+    rm -f "$sim_dir/tools/new-feature.py" "$sim_dir/tools/export-tasks.py"
+    python3 -B - "$sim_dir/template-manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m["version"] = "0.4.4"
+sdd = {"tools/new-feature.py", "tools/export-tasks.py", "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md"}
+m["managed_paths"] = [x for x in m["managed_paths"] if x not in sdd]
+m["profiles"]["core"] = [x for x in m["profiles"]["core"] if x not in sdd]
+open(p, "w").write(json.dumps(m, indent=2) + "\n")
+PY
+done
+(
+    cd "$v044_clean_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update >/dev/null
+)
+[ -f "$v044_clean_target/tools/new-feature.py" ] || fail "v0.4.4 update did not install tools/new-feature.py"
+[ -f "$v044_clean_target/tools/export-tasks.py" ] || fail "v0.4.4 update did not install tools/export-tasks.py"
+
+printf '# custom user exporter\n' > "$v044_partial_target/tools/export-tasks.py"
+(
+    cd "$v044_partial_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan partial-sdd-plan.json >/dev/null
+)
+python3 -B - "$v044_partial_target/partial-sdd-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+assert any(item["path"] == "tools/export-tasks.py" for item in plan["manual_action"]), plan["manual_action"]
+assert any(item["path"] == "tools/new-feature.py" for item in plan["will_install"]), plan["will_install"]
+PY
+(
+    cd "$v044_partial_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v044-partial-update.txt"
+assert_file_contains "$v044_partial_target/tools/export-tasks.py" "# custom user exporter"
+[ -f "$v044_partial_target/tools/new-feature.py" ] || fail "v0.4.4 partial update did not install tools/new-feature.py"
+python3 -B - "$v044_partial_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert "tools/new-feature.py" in m["managed_paths"] and "tools/new-feature.py" in m["profiles"]["core"]
+assert "tools/export-tasks.py" not in m["managed_paths"] and "tools/export-tasks.py" not in m["profiles"]["core"]
+PY
+
+# 5. setup.sh --doctor: source-template mode (no runtime binaries required), clean downstream mode, legacy 3-file WARN, missing tool FAIL, and Clarify gate FAIL
+doctor_src_bin="$TEST_DIR/doctor-src-bin"
+mkdir -p "$doctor_src_bin"
+ln -s "$(command -v python3)" "$doctor_src_bin/python3"
+for sys_cmd in bash dirname pwd grep find rm mktemp cp mv cat tr; do
+    if command -v "$sys_cmd" >/dev/null 2>&1; then
+        ln -sf "$(command -v "$sys_cmd")" "$doctor_src_bin/$sys_cmd"
+    fi
+done
+(
+    cd "$TEMPLATE_DIR"
+    PATH="$doctor_src_bin" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-source-template.txt"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS adapters:"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS tools: source SDD and validation scripts verified"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS spec readiness:"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "Doctor result: READY"
+
+printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/agy"
+chmod +x "$TEST_DIR/bin/agy"
+(
+    cd "$v044_clean_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-downstream-ready.txt"
+assert_file_contains "$TEST_DIR/doctor-downstream-ready.txt" "PASS tools: managed downstream tools verified"
+assert_file_contains "$TEST_DIR/doctor-downstream-ready.txt" "PASS spec readiness:"
+assert_file_contains "$TEST_DIR/doctor-downstream-ready.txt" "Doctor result: READY"
+
+# Legacy 3-file approved feature emits WARN (exit 0), not FAIL
+cp -R "$preset_target/docs/current/05 - Product Features/001-auth" "$v044_clean_target/docs/current/05 - Product Features/001-legacy"
+rm -f "$v044_clean_target/docs/current/05 - Product Features/001-legacy/4. Tasks.md"
+python3 -B - "$v044_clean_target/docs/current/05 - Product Features/001-legacy" <<'PY'
+import sys
+from pathlib import Path
+
+legacy_dir = Path(sys.argv[1])
+for spec_name in ("1. Product Spec.md", "2. Tech Spec.md", "3. QA Spec.md"):
+    spec_path = legacy_dir / spec_name
+    lines = [line for line in spec_path.read_text(encoding="utf-8").splitlines() if "[[4. Tasks]]" not in line]
+    spec_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+(
+    cd "$v044_clean_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-legacy-warn.txt"
+assert_file_contains "$TEST_DIR/doctor-legacy-warn.txt" "WARN spec readiness:"
+assert_file_contains "$TEST_DIR/doctor-legacy-warn.txt" "Doctor result: READY"
+
+# Missing managed tool fails doctor
+mv "$v044_clean_target/tools/new-feature.py" "$TEST_DIR/saved-new-feature.py"
+if (
+    cd "$v044_clean_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-missing-tool.txt" 2>&1; then
+    fail "doctor accepted missing managed tools/new-feature.py"
+fi
+assert_file_contains "$TEST_DIR/doctor-missing-tool.txt" "FAIL tools: missing or symlinked managed tool tools/new-feature.py"
+mv "$TEST_DIR/saved-new-feature.py" "$v044_clean_target/tools/new-feature.py"
+
+# Clarify violation in approved spec fails doctor
+printf '\n[NEEDS CLARIFICATION: blocking question]\n' >> "$v044_clean_target/docs/current/05 - Product Features/001-legacy/1. Product Spec.md"
+if (
+    cd "$v044_clean_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-clarify-fail.txt" 2>&1; then
+    fail "doctor accepted approved spec with unresolved NEEDS CLARIFICATION marker"
+fi
+assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "FAIL spec readiness:"
+assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "Doctor result: NOT READY"
+
+# --- v0.5.1 SDD Slash Commands & Agent Skills Pack regression tests ---
+
+assert_file_contains "$TEMPLATE_DIR/setup.sh" "--without-skills"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 7 canonical SDD skills verified"
+
+printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/claude"
+printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/qwen"
+chmod +x "$TEST_DIR/bin/claude" "$TEST_DIR/bin/qwen"
+
+# 1. --without-skills fresh install, opt-out persistence across --update, --doctor INFO, and normal incremental re-enable
+without_skills_target="$TEST_DIR/without-skills-target"
+mkdir -p "$without_skills_target"
+no_skills_expected_count=$((11 + core_doc_count))
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --without-skills
+) > "$TEST_DIR/without-skills-dry-run.txt"
+assert_file_contains "$TEST_DIR/without-skills-dry-run.txt" "Dry run complete: $no_skills_expected_count file(s) would be installed"
+
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models antigravity,qwen --without-skills
+) > "$TEST_DIR/without-skills-install.txt"
+[ ! -e "$without_skills_target/.agents" ] || fail "--without-skills created .agents directory"
+[ ! -e "$without_skills_target/.qwen" ] || fail "--without-skills created .qwen directory"
+python3 -B - "$without_skills_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is False, m
+assert not any("/skills/" in p for p in m["managed_paths"]), m["managed_paths"]
+assert not any("/skills/" in p for p in m["profiles"]["core"]), m["profiles"]["core"]
+PY
+
+(
+    cd "$without_skills_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-without-skills.txt"
+assert_file_contains "$TEST_DIR/doctor-without-skills.txt" "INFO skills: disabled via --without-skills"
+assert_file_contains "$TEST_DIR/doctor-without-skills.txt" "Doctor result: READY"
+
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/without-skills-update.txt"
+[ ! -e "$without_skills_target/.agents" ] || fail "--update ignored persisted skills_enabled: false"
+python3 -B -c 'import json, sys; assert json.load(open(sys.argv[1]))["skills_enabled"] is False' "$without_skills_target/template-manifest.json"
+
+# Normal incremental install (without --without-skills) re-enables skills_enabled: true for requested runtime
+(
+    cd "$without_skills_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude
+) > "$TEST_DIR/without-skills-reenable.txt"
+[ -f "$without_skills_target/.claude/skills/sdd-docs/SKILL.md" ] || fail "normal incremental install did not install .claude skills"
+python3 -B - "$without_skills_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is True, m
+assert ".claude/skills/sdd-docs/SKILL.md" in m["managed_paths"], m["managed_paths"]
+assert ".claude/skills/sdd-docs/SKILL.md" in m["profiles"]["core"], m["profiles"]["core"]
+PY
+(
+    cd "$without_skills_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-reenabled-skills.txt"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 7 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "Doctor result: READY"
+
+# 2. --update --without-skills preserves existing SKILL.md files on disk (non-destructive) and drops them from managed_paths
+optout_update_target="$TEST_DIR/optout-update-target"
+mkdir -p "$optout_update_target"
+(
+    cd "$optout_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude,antigravity >/dev/null
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --without-skills --migration-plan optout-plan.json >/dev/null
+)
+python3 -B - "$optout_update_target/optout-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+assert any(item["path"] == ".claude/skills/sdd-docs/SKILL.md" for item in plan["will_preserve"]), plan["will_preserve"]
+assert any(item["path"] == ".agents/skills/sdd-implement/SKILL.md" for item in plan["will_preserve"]), plan["will_preserve"]
+PY
+(
+    cd "$optout_update_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --without-skills
+) > "$TEST_DIR/optout-update.txt"
+assert_file_contains "$TEST_DIR/optout-update.txt" "SKIP (skills disabled): .claude/skills/sdd-docs/SKILL.md"
+[ -f "$optout_update_target/.claude/skills/sdd-docs/SKILL.md" ] || fail "--update --without-skills deleted existing .claude skill"
+[ -f "$optout_update_target/.agents/skills/sdd-implement/SKILL.md" ] || fail "--update --without-skills deleted existing .agents skill"
+python3 -B - "$optout_update_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is False, m
+assert not any("/skills/" in p for p in m["managed_paths"]), m["managed_paths"]
+assert not any("/skills/" in p for p in m["profiles"]["core"]), m["profiles"]["core"]
+PY
+
+# 3. v0.5.0 upgrade via --update: installs managed skills, preserves pre-existing user-created SKILL.md, and backs up managed skills on later updates
+v050_skill_target="$TEST_DIR/v050-skill-target"
+mkdir -p "$v050_skill_target"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude,antigravity --without-skills >/dev/null
+)
+python3 -B - "$v050_skill_target/template-manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m["version"] = "0.5.0"
+m.pop("skills_enabled", None)
+open(p, "w").write(json.dumps(m, indent=2) + "\n")
+PY
+mkdir -p "$v050_skill_target/.claude/skills/sdd-plan"
+printf '# custom user sdd-plan\n' > "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan v050-skill-plan.json >/dev/null
+)
+python3 -B - "$v050_skill_target/v050-skill-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+assert any(item["path"] == ".claude/skills/sdd-plan/SKILL.md" for item in plan["manual_action"]), plan["manual_action"]
+assert any(item["path"] == ".claude/skills/sdd-specify/SKILL.md" for item in plan["will_install"]), plan["will_install"]
+assert any(item["path"] == ".agents/skills/sdd-plan/SKILL.md" for item in plan["will_install"]), plan["will_install"]
+PY
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v050-skill-update.txt"
+assert_file_contains "$TEST_DIR/v050-skill-update.txt" "SKIP (user-owned skill): .claude/skills/sdd-plan/SKILL.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md" "# custom user sdd-plan"
+[ -f "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md" ] || fail "v0.5.0 update did not install sibling .claude skill"
+[ -f "$v050_skill_target/.agents/skills/sdd-plan/SKILL.md" ] || fail "v0.5.0 update did not install .agents skill"
+python3 -B - "$v050_skill_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["skills_enabled"] is True
+assert ".claude/skills/sdd-plan/SKILL.md" not in m["managed_paths"]
+assert ".claude/skills/sdd-plan/SKILL.md" not in m["profiles"]["core"]
+assert ".claude/skills/sdd-specify/SKILL.md" in m["managed_paths"]
+assert ".agents/skills/sdd-plan/SKILL.md" in m["managed_paths"]
+PY
+
+# Subsequent --update backs up managed skill edits to .ai-template-backup.* while keeping user-owned skill untouched
+rm -rf "$v050_skill_target"/.ai-template-backup.*
+printf '# local edit on managed skill\n' > "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md"
+(
+    cd "$v050_skill_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update >/dev/null
+)
+skill_backup_dir="$(find "$v050_skill_target" -maxdepth 1 -type d -name '.ai-template-backup.*' -print -quit)"
+[ -n "$skill_backup_dir" ] || fail "managed skill update did not create .ai-template-backup.*"
+assert_file_contains "$skill_backup_dir/.claude/skills/sdd-specify/SKILL.md" "# local edit on managed skill"
+assert_file_contains "$skill_backup_dir/RECOVERY.md" "Template update recovery"
+[ ! -e "$skill_backup_dir/.claude/skills/sdd-plan/SKILL.md" ] || fail "update backed up user-owned .claude/skills/sdd-plan/SKILL.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-specify/SKILL.md" "AGENTS.md"
+assert_file_contains "$v050_skill_target/.claude/skills/sdd-plan/SKILL.md" "# custom user sdd-plan"
+
+# 4. setup.sh --doctor flag guard & downstream managed skill deletion/symlink failure remediation
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --without-skills
+) > "$TEST_DIR/doctor-flag-combo.txt" 2>&1; then
+    fail "--doctor accepted --without-skills combination"
+fi
+
+(
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-v050-skills-ready.txt"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 13 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "Doctor result: READY"
+
+mv "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md" "$TEST_DIR/saved-sdd-docs-skill.md"
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-missing-skill.txt" 2>&1; then
+    fail "doctor accepted missing managed .claude/skills/sdd-docs/SKILL.md"
+fi
+assert_file_contains "$TEST_DIR/doctor-missing-skill.txt" "FAIL skills:"
+assert_file_contains "$TEST_DIR/doctor-missing-skill.txt" "setup.sh --update"
+
+ln -s "$TEST_DIR/saved-sdd-docs-skill.md" "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
+if (
+    cd "$v050_skill_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/doctor-symlink-skill.txt" 2>&1; then
+    fail "doctor accepted symlinked managed .claude/skills/sdd-docs/SKILL.md"
+fi
+assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "FAIL skills:"
+assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "setup.sh --update"
+rm -f "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
+mv "$TEST_DIR/saved-sdd-docs-skill.md" "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
 
 echo "PASS: setup installer regression tests"

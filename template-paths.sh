@@ -26,8 +26,15 @@ overrides = {
     "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
     "tools/docs_validation.py": "tests/docs_validation.py",
     "tools/validate-docs.py": "tests/validate-project-docs.py",
+    "tools/new-feature.py": "tests/new-feature.py",
+    "tools/export-tasks.py": "tests/export-tasks.py",
     ".agents/AGENTS.md": "AGENTS.md",
 }
+
+if "default_preset" in manifest and manifest["default_preset"] is not None:
+    preset = manifest["default_preset"]
+    if not isinstance(preset, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", preset):
+        raise ValueError("manifest default_preset must be a lowercase kebab-case slug")
 
 def validate_path(value: object, profile: str) -> str:
     if not isinstance(value, str) or not value:

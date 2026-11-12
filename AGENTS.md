@@ -10,6 +10,7 @@ Before starting any implementation, bug fix, refactor, or change to a runtime/AP
 - Read the feature's relevant existing Product/Tech/QA specs and architecture docs before editing.
 - Treat implementation, migrations, and generated inventories as evidence of the **current** system. For an intentional new behavior, the user's explicitly approved request and acceptance criteria become execution authority only after capture in a per-task evidence record; surface any conflict with current code/docs instead of silently preserving old behavior.
 - Stop and request clarification when acceptance criteria, source-of-truth, required authority, or a material product decision is missing; do not invent behavior.
+- Enforce the Clarify and pack-approval gate: `status: draft` specs may carry up to 3 `[NEEDS CLARIFICATION: <question>]` markers per file, whereas `status: approved` execution requires pack-level approval across all present numbered feature specs (`1. Product Spec.md`..`3. QA Spec.md`, plus `4. Tasks.md` when present) with zero `[NEEDS CLARIFICATION: ...]` markers, zero unchecked `- [ ]` open-decision or readiness checkboxes, and non-empty `approved_by`, `approved_at`, `approval_evidence`, and approval-time `source_revision` (`git rev-parse HEAD` of the approved revision, never a stale draft SHA).
 - Before implementing behavior-changing work, identify the automated test(s) and validation mapped to each acceptance criterion. For a bug fix, add or identify a regression test where feasible; otherwise explain why it is infeasible.
 - Never invent file/line references, command output, test status, inventory content, documentation updates, or external facts. Record unavailable verification as `Unknown`.
 - Prefer the smallest change that satisfies the approved acceptance criteria. Do not introduce speculative abstractions, configurability, or features outside the requested scope.
@@ -39,6 +40,7 @@ When initializing or refreshing whole-project documentation, first inspect the a
 
 - Select collaborating agents only from capabilities actually available in the active host. When the host supports delegation, use it for independent or high-risk work—such as review, security, test/QA, or architecture—when warranted by the task.
 - Assign every delegated agent explicit ownership and require handoffs to include supporting evidence plus separate Fact / Assumption / Unknown entries.
+- When a feature's `4. Tasks.md` marks execution rows `[P] = yes`, delegated sub-agents must follow each task's non-overlapping, repo-relative `Owned paths` boundary (no glob wildcards).
 - Code changes require mapped test or validation and review proportionate to their risk.
 
 # RULE: ENVIRONMENT & DESTRUCTIVE-ACTION SAFETY

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0] - 2026-11-12
+
+- Added a 4-file Spec-Driven Development feature pack (`4. Tasks.md` with embedded Pre-implementation Readiness Checklist, vertical MVP slicing, and `[P]` path-ownership boundaries) across `docs/templates/feature-spec-template/` and `docs/templates/examples/ai-support-agent/`.
+- Added `docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md` covering the 6-stage `Specify -> Clarify -> Plan -> Tasks -> Analyze -> Implement, Converge & Evidence` workflow.
+- Extended `docs_validation.py` and `tools/validate-docs.py` (`--require-tasks` optional) with code-stripped link scanning, Clarify Gate (`<=3` markers in `draft`, `0` markers/open checkboxes and required approval provenance on `approved`/`example` numbered feature specs), escaped-pipe header-driven cross-spec AC traceability, task DAG cycle checks, and segment-safe `[P]` `Owned paths` collision detection.
+- Added `tools/new-feature.py` for numbered `NNN-<slug>` 4-file scaffolding with `--plain`, `--dry-run`, built-in archetypes (`general`, `web-api`, `cli-tool`, `ai-agent`), and custom `docs/templates/presets/<name>/` overlays.
+- Added `tools/export-tasks.py` for offline task export (`json`, `markdown`, `gh-commands`), skipping `done` tasks by default (`--include-done`), blocking unapproved specs without `--allow-draft`, and supporting idempotent `gh issue list` + `gh issue create` execution only under explicit `--apply-gh --repo OWNER/REPO`.
+- Added `setup.sh --preset` on install and `--update`, independent per-tool ownership preservation (`tools/new-feature.py`, `tools/export-tasks.py`), and source-template + downstream Spec/Clarify readiness checks in `setup.sh --doctor`.
+
 ## [0.4.4] - 2026-07-23
 
 - Added `setup.sh --doctor`, a read-only readiness check for Bash/Python, selected runtime agents and adapters, manifest ownership, and local Markdown documentation links.

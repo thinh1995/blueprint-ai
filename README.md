@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.4.4`. See [V4.4 Acceptance Matrix](V4_4_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.5.0`. See [V5 Acceptance Matrix](V5_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 Đây là thư mục template dùng để khởi tạo nhanh một project mới với cấu trúc chuẩn:
 1. **Rule cho AI Agent (`AGENTS.md` + runtime adapters)**: Định hướng AI Agent tự động tìm kiếm context từ thư mục docs, làm việc dựa trên "evidence-first" và tự động sync docs sau khi code xong. Agent chỉ chọn năng lực có sẵn trên host; delegation được dùng khi phù hợp với công việc độc lập hoặc rủi ro cao, với ownership, evidence và handoff rõ ràng. Khi khởi tạo/refresh docs, host có delegation phải tạo sub-agent chuyên biệt trước khi ghi; host không có capability phải ghi fallback tuần tự. `CLAUDE.md`, `GEMINI.md` (adapter tương thích của Antigravity CLI), và `QWEN.md` là các entrypoint ngắn, cùng trỏ về `AGENTS.md` là nguồn rule canon. Với Gemma/raw API, cấu hình host phải inject [system prompt template](docs/templates/1. Agent System Prompt Template.md); repository file không tự trở thành system prompt.
@@ -27,6 +27,12 @@ Current release: `0.4.4`. See [V4.4 Acceptance Matrix](V4_4_ACCEPTANCE_MATRIX.md
    GEMINI.md            # Default/all selection only
    QWEN.md              # Default/all selection only
    task-evidence/        # Installed alongside docs/
+   tools/
+     ├── validate-docs.py
+     ├── docs_validation.py
+     ├── validate-task-evidence.py
+     ├── new-feature.py
+     └── export-tasks.py
    docs/
      ├── current/
          ├── 00 - Onboarding/
@@ -36,14 +42,14 @@ Current release: `0.4.4`. See [V4.4 Acceptance Matrix](V4_4_ACCEPTANCE_MATRIX.md
          ├── 08 - Diagram Standards/
          └── Vault Index MOC.md
      └── templates/
-         ├── feature-spec-template/
+         ├── feature-spec-template/   # 1..4 spec pack (Product, Tech, QA, Tasks)
          ├── 1. Agent System Prompt Template.md
          ├── 2. Documentation Subagent Contract.md
          ├── 3. Task Evidence Template.md
          ├── 4. Runtime Delegation Evidence Template.md
          └── examples/ai-support-agent/
    ```
-4. Mở thư mục project bằng ứng dụng Obsidian (Open as Vault) để bắt đầu. Các starter note trong `docs/current/` được đánh dấu `status: draft`; hãy điền chúng bằng thông tin dự án trước khi coi chúng là source of truth. Copy material từ `docs/templates/` khi tạo feature/evidence; không dùng template hoặc sample làm source of truth. Dùng `00 - Onboarding/4. Whole-Project Documentation Update Prompt` để yêu cầu agent tạo/refresh toàn bộ docs từ source hiện hữu. Đọc `00 - Onboarding/5. Model Runtime Instructions` để xác minh runtime thực sự nạp rule. `docs/internal/` là source-only và không được cài vào project downstream.
+4. Mở thư mục project bằng ứng dụng Obsidian (Open as Vault) để bắt đầu. Các starter note trong `docs/current/` được đánh dấu `status: draft`; hãy điền chúng bằng thông tin dự án trước khi coi chúng là source of truth. Copy material từ `docs/templates/` hoặc chạy `python3 tools/new-feature.py <slug>` (tùy chọn `--preset general|web-api|cli-tool|ai-agent|<custom>`) để tạo pack 4 file tính năng mới (`1. Product Spec.md` .. `4. Tasks.md`); có thể đặt preset mặc định khi cài hoặc nâng cấp bằng `--preset <name>`. Dùng `00 - Onboarding/4. Whole-Project Documentation Update Prompt` để yêu cầu agent tạo/refresh toàn bộ docs từ source hiện hữu, và `00 - Onboarding/6. Spec-Driven Feature Prompts` cho quy trình 6 bước Spec-Driven Development (`Specify -> Clarify -> Plan -> Tasks -> Analyze -> Implement, Converge & Evidence`). Sau khi spec đạt `status: approved`, dùng `python3 tools/export-tasks.py <feature-dir>` để xuất task offline (`json`, `markdown`, `gh-commands`) hoặc `--apply-gh --repo OWNER/REPO` để tạo GitHub Issue idempotent. Đọc `00 - Onboarding/5. Model Runtime Instructions` để xác minh runtime thực sự nạp rule. `docs/internal/` là source-only và không được cài vào project downstream.
 
 ## Template upgrade
 
@@ -69,7 +75,7 @@ After setup, run this read-only check from the downstream project root:
 bash /path/to/ai-project-template/setup.sh --doctor
 ```
 
-It checks Bash/Python, canonical `AGENTS.md`, the selected runtime agents and their adapters, the managed manifest, and local Markdown documentation links. Each failed check includes a remediation; Gemma/custom harnesses remain `NOT READY` until their host-level system-prompt injection is verified outside the repository.
+It checks Bash/Python, canonical `AGENTS.md`, the selected runtime agents and their adapters (or static adapter delegation and `tests/` tools when run in source-template mode directly inside the template repository), the managed manifest, managed `tools/` scripts, local Markdown documentation links, and Spec/Clarify readiness (`WARN` on legacy 3-file approved packs without `4. Tasks.md`). Each failed check includes a remediation; Gemma/custom harnesses remain `NOT READY` in downstream projects until their host-level system-prompt injection is verified outside the repository.
 
 ## Kiểm tra template
 
@@ -83,4 +89,4 @@ Test bao phủ dry-run, giữ file có sẵn/symlink theo mặc định, `--forc
 
 Template cài `template-manifest.json` để truy vết phiên bản và các đường dẫn được quản lý. Repository template có workflow GitHub tại `.github/workflows/ai-template-validation.yml`, tự chạy syntax check và regression test; nếu mirror template sang CI khác, gọi cùng lệnh `bash tests/setup.sh`.
 
-Project đích nhận `tools/validate-docs.py` và `tools/validate-task-evidence.py`. Thêm `python3 tools/validate-docs.py` vào CI để kiểm tra link và Mermaid structure; dùng `python3 tools/validate-task-evidence.py --require-completed` cho PR behavior-changing để bắt buộc có completed evidence record.
+Project đích nhận `tools/validate-docs.py`, `tools/validate-task-evidence.py`, `tools/new-feature.py` và `tools/export-tasks.py`. Thêm `python3 tools/validate-docs.py` (`--require-tasks` khi bắt buộc mọi approved feature có `4. Tasks.md`) vào CI để kiểm tra link, Mermaid structure, Clarify Gate và liên thông AC giữa các spec; dùng `python3 tools/validate-task-evidence.py --require-completed` cho PR behavior-changing để bắt buộc có completed evidence record.

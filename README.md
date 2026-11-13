@@ -1,180 +1,161 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.5.1`. See [V5.1 Acceptance Matrix](docs/internal/acceptance-matrices/V5_1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.6.0`. See [V6 Acceptance Matrix](docs/internal/acceptance-matrices/V6_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 > **Dành cho người mới — Bộ khung này là gì?**
-> Đây **không phải** là thư viện code (như gói `npm` hay `pip`), mà là **bộ quy tắc làm việc chuẩn cho AI Agent kết hợp kho tài liệu dự án (Obsidian)**. Khi cài vào dự án của bạn, bộ khung giúp giải quyết 3 vấn đề thường gặp khi lập trình cùng AI:
-> 1. **Chống AI tự đoán mò & làm hỏng code cũ (`AGENTS.md` + file adapter):** Buộc AI đọc tài liệu thực tế trước khi sửa, tách bạch rõ điều đã xác minh và điều giả định (`Fact / Assumption / Unknown`), chỉ sửa đúng chỗ cần thiết và tự cập nhật lại tài liệu khi hành vi hệ thống thay đổi.
-> 2. **Tài liệu dự án rõ ràng, trực quan (`docs/current/` & `docs/templates/`):** Tách riêng sự thật hiện tại của dự án (`docs/current/`) khỏi các mẫu tái sử dụng (`docs/templates/`), dùng sơ đồ Mermaid chuẩn để dễ đọc trên cả GitHub lẫn ứng dụng Obsidian.
-> 3. **Quy trình làm tính năng từng bước bằng lệnh tắt `/sdd-*` & `tools/`:** Cài sẵn **7 lệnh slash `/sdd-*`** (cho Claude Code, Antigravity CLI, Qwen Code) kết hợp các script nhỏ gọn bằng Bash + Python 3 chuẩn (`tools/`) giúp tạo khung đặc tả tính năng, kiểm tra thiếu sót trước khi viết code và xuất danh sách việc sang GitHub Issues.
+> Đây **không phải** là thư viện mã nguồn (như gói `npm` hay `pip`), mà là **bộ quy tắc điều phối chuẩn cho AI Agent kết hợp kho tài liệu dự án Docs-as-Code (GitHub + Obsidian)**. Khi cài đặt vào dự án của bạn, bộ khung giải quyết triệt để 3 bài toán lớn khi lập trình cùng AI:
+> 1. **Chống AI tự suy diễn & làm hỏng hệ thống hiện hữu (`AGENTS.md` + 8 runtime adapters):** Buộc AI đọc mã nguồn và tài liệu thực tế trước khi sửa, phân tách minh bạch `Fact / Assumption / Unknown`, chỉ sửa tối giản đúng phạm vi (`Owned paths`) và đồng bộ lại tài liệu khi hành vi thay đổi.
+> 2. **Kho tài liệu song ngữ chuẩn hoá máy đọc – người đọc (`docs/current/` & `docs/templates/`):** Giữ 100% tiếng Anh cho cấu trúc máy kiểm định (YAML frontmatter, tiêu đề H1/H2/H3, cột bảng) kết hợp 100% tiếng Việt tự nhiên cho nội dung giải thích, cùng liên kết tương đối mã hoá `%20` hoạt động mượt trên cả GitHub lẫn Obsidian.
+> 3. **Quy trình Spec-Driven Development 3 cấp độ linh hoạt (`/sdd-*` & `tools/`):** Trang bị sẵn **8 lệnh tắt `/sdd-*`** (tự động khử trùng lặp qua `.agents/skills/`) và bộ công cụ Python 3 thuần thư viện chuẩn cho cả sửa lỗi nhanh (**Tier S** `/sdd-fix`), tính năng nhỏ 1 file (**Tier M** `--mini`) lẫn gói 4 file đầy đủ (**Tier L**).
 
 ---
 
-## 1. Cần chuẩn bị gì trước khi bắt đầu? (1 phút)
+## 1. Prerequisites
 
-- **Bash** và **Python 3**: Đã có sẵn trên macOS và hầu hết bản phân phối Linux (không cần cài thêm thư viện ngoài).
-- **Git**: Thư mục dự án của bạn nên được khởi tạo sẵn Git (`git init`) để lưu lịch sử và xác nhận phiên bản duyệt tài liệu.
-- **Công cụ AI Agent**: Claude Code, Antigravity CLI (Gemini), Cursor, Qwen Code... mở tại thư mục gốc dự án. *(Với Gemma hoặc custom API harness riêng, phía host cần nạp thêm [system prompt template](docs/templates/1.%20Agent%20System%20Prompt%20Template.md) vì file trong repo không tự trở thành system prompt).*
-- **Ứng dụng [Obsidian](https://obsidian.md)** *(tuỳ chọn nhưng khuyên dùng)*: Dùng tính năng `Open folder as vault` mở thư mục dự án để xem sơ đồ luồng và liên kết tài liệu trực quan.
+- **Bash** và **Python 3**: Có sẵn trên macOS và hầu hết bản phân phối Linux (hoạt động độc lập 100% bằng thư viện chuẩn, không cần cài gói phụ thuộc ngoài).
+- **Git**: Dự án đích nên được khởi tạo Git (`git init`) để đóng dấu mã commit phê duyệt `source_revision` 40 ký tự hex và truy vết bằng chứng kiểm thử.
+- **Công cụ AI Agent (hỗ trợ 8 runtimes)**: Claude Code (`claude`), Antigravity CLI (`antigravity`), Qwen Code (`qwen`), OpenCode (`opencode`), OpenAI Codex (`codex`), Cursor (`cursor`), GitHub Copilot (`copilot`) hoặc Gemma/custom API harness (`gemma`). *(Riêng với `gemma` hoặc custom harness, phía host cần tiêm thêm [1. Agent System Prompt Template](docs/templates/1.%20Agent%20System%20Prompt%20Template.md) vì một file nằm trong repo không tự trở thành system prompt).*
+- **Ứng dụng [Obsidian](https://obsidian.md)** *(khuyên dùng)*: Chọn `Open folder as vault` ngay tại **thư mục gốc dự án (`.`)** để xem sơ đồ luồng Mermaid và bản đồ liên kết giữa `AGENTS.md`, `task-evidence/` và `docs/`.
 
 ---
 
-## 2. Bắt đầu nhanh trong 5 phút (Ví dụ với Dự án Web)
+## 2. Five-minute quickstart
 
-> **Nguyên tắc "Cài 1 lần, dùng 100% trên AI Chat":** Bạn chỉ cần mở Terminal **đúng 1 lần duy nhất** ở Bước 1 để cài bộ khung vào dự án. Từ Bước 2 trở đi, bạn chỉ việc trò chuyện trong khung **AI Chat** — chính AI Agent sẽ tự gọi ngầm các công cụ trong `tools/` ở hậu trường mà bạn không cần chuyển cửa sổ qua lại.
+> **Nguyên tắc "Cài 1 lần ở Terminal, vận hành trọn vẹn trong khung AI Chat":** Bạn chỉ cần chạy lệnh cài đặt **1 lần duy nhất** ở Bước 1. Từ Bước 2 trở đi, chỉ cần gõ các lệnh `/sdd-*` ngay trong khung chat AI — chính AI Agent sẽ tự động gọi ngầm bộ công cụ trong `tools/` ở hậu trường.
 
-Giả sử bạn đang có một **dự án Web** (hoặc vừa tạo thư mục dự án mới) tại `/duong/dan/du-an-web`:
+### Step 1: Install into your project
 
-### Bước 1 (Terminal – 1 phút, làm 1 lần duy nhất): Cài bộ khung vào dự án
-
-Mở Terminal, di chuyển (`cd`) vào **thư mục gốc của dự án Web** *(lưu ý: không chạy lệnh cài đặt ngay bên trong thư mục `ai-project-template` này)*:
+Mở Terminal, di chuyển (`cd`) vào **thư mục gốc dự án của bạn** *(không chạy cài đặt ngay bên trong thư mục nguồn `ai-project-template` này)*:
 
 ```bash
-cd /duong/dan/du-an-web
+cd /duong/dan/du-an-cua-ban
 
-# 1. Xem thử các file sẽ được thêm vào (chưa ghi xuống ổ cứng)
-bash /path/to/ai-project-template/setup.sh --dry-run --preset web-api --with-advanced-docs
+# 1. Xem trước các file sẽ được cài đặt (không ghi xuống ổ cứng)
+bash /path/to/ai-project-template/setup.sh --dry-run --preset web-api --models claude,codex,cursor --with-advanced-docs
 
-# 2. Cài đặt chính thức (chọn sẵn mẫu web-api và khung tài liệu API/Backend/Infra)
-bash /path/to/ai-project-template/setup.sh --preset web-api --with-advanced-docs
+# 2. Cài đặt chính thức
+bash /path/to/ai-project-template/setup.sh --preset web-api --models claude,codex,cursor --with-advanced-docs
 
-# 3. Kiểm tra môi trường đã sẵn sàng chưa
+# 3. Kiểm tra sức khoẻ cấu hình sau khi cài
 bash /path/to/ai-project-template/setup.sh --doctor
 ```
 
-> **An toàn cho dự án hiện có:** Mặc định `setup.sh` **không bao giờ ghi đè** code hay bất kỳ file nào đã tồn tại trong dự án của bạn. Nếu dự án không phải web, bạn có thể đổi `--preset` thành `general`, `cli-tool` hoặc `ai-agent`.
+> **An toàn tuyệt đối cho dự án đang chạy:** Mặc định `setup.sh` **không bao giờ ghi đè** bất kỳ file nào đã có sẵn trong dự án của bạn. Bạn có thể chọn `--preset` là `general`, `web-api`, `cli-tool` hoặc `ai-agent`.
 
-### Bước 2 (AI Chat – 2 phút): Để AI làm quen với dự án (gõ `/sdd-docs`)
+### Step 2: Bootstrap project documentation
 
-Mở công cụ chat AI ngay tại thư mục `/duong/dan/du-an-web`, sau đó chọn đúng trường hợp của bạn:
+Mở công cụ AI Agent tại thư mục gốc dự án:
+- **Dự án ĐÃ CÓ MÃ NGUỒN:** Gõ `/sdd-docs` (hoặc `/sdd-docs refresh` sau các đợt thay đổi lớn). AI sẽ khảo sát cấu trúc mã nguồn thực tế (tự động điều phối các sub-agent chuyên biệt nếu host hỗ trợ) để điền kho tài liệu `docs/current/` theo [4. Whole-Project Documentation Update Prompt](docs/current/00%20-%20Onboarding/4.%20Whole-Project%20Documentation%20Update%20Prompt.md).
+- **Dự án MỚI TINH (chưa có code):** Mở `docs/current/01 - Overview/Overview.md` và `BA Foundation.md` để phác thảo bài toán sản phẩm cùng AI.
 
-- **Trường hợp A — Dự án Web ĐÃ CÓ SẴN CODE:** Gõ lệnh tắt trực tiếp trong khung chat (Claude Code, Antigravity CLI, Qwen Code):
-  ```text
-  /sdd-docs
-  ```
-  *(Khi cần đồng bộ lại tài liệu sau các đợt thay đổi lớn, gõ `/sdd-docs refresh`. Nếu dùng Gemma, Cursor hoặc trình chat web không tự nạp skill từ repo, chỉ cần nhắn 1 câu: *"Đọc `docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md` và chạy mục First documentation pass cho dự án này."* AI sẽ tự đọc [4. Whole-Project Documentation Update Prompt](docs/current/00%20-%20Onboarding/4.%20Whole-Project%20Documentation%20Update%20Prompt.md), khảo sát cấu trúc code `src/`, `app/`, routes, database... để điền vào `docs/current/` và hỏi lại bạn những chỗ còn chưa rõ).*
-- **Trường hợp B — Dự án MỚI TINH (chưa có code):** Mở `docs/current/01 - Overview/Overview.md` (bằng trình soạn thảo hoặc Obsidian) để ghi vài gạch đầu dòng về mục tiêu dự án, hoặc nhờ AI trò chuyện cùng bạn để điền dần bối cảnh ban đầu.
+### Step 3: Deliver changes with three-tier SDD
 
-### Bước 3 (AI Chat – 2 phút): Thử làm tính năng đầu tiên bằng bộ lệnh `/sdd-*`
+Chọn đúng luồng tương ứng với quy mô công việc ngay trong khung chat AI (xem chi tiết tại [6. Spec-Driven Feature Prompts](docs/current/00%20-%20Onboarding/6.%20Spec-Driven%20Feature%20Prompts.md)):
 
-Khi muốn thêm một tính năng mới có thay đổi hành vi hệ thống (ví dụ chức năng đăng nhập `user-auth`), bạn chỉ cần gõ lần lượt các lệnh `/sdd-*` ngay trong **AI Chat** (không cần mở file copy-paste hay tự gõ lại đường dẫn thư mục tính năng ở các bước sau):
-
-1. **Khởi tạo đặc tả yêu cầu (`Specify`):**
-   ```text
-   /sdd-specify user-auth
-   ```
-   - *Ở hậu trường:* AI tự chạy `python3 tools/new-feature.py user-auth` (tự động lấy `default_preset` `web-api` đã lưu trong `template-manifest.json`), sinh bộ 4 file nháp (`1. Product Spec.md`, `2. Tech Spec.md`, `3. QA Spec.md`, `4. Tasks.md`) trong `docs/current/05 - Product Features/001-user-auth/`, điền đặc tả và nêu tối đa 3 câu hỏi cần bạn chốt.
-2. **Làm rõ, thiết kế, kiểm toán & viết code:** Đi tiếp từng bước bằng lệnh tắt (AI tự nhận diện thư mục tính năng đang làm):
-   ` /sdd-clarify ` → ` /sdd-plan ` → ` /sdd-tasks ` → ` /sdd-analyze ` *(xác nhận duyệt bộ spec)* → ` /sdd-implement `
-   *(Fallback cho host không hỗ trợ skill: nhắn câu tự nhiên *"Đọc `docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md` và chạy Giai đoạn 1 (Specify) cho `user-auth`"* rồi bảo AI chuyển tiếp sang từng giai đoạn tại [6. Spec-Driven Feature Prompts](docs/current/00%20-%20Onboarding/6.%20Spec-Driven%20Feature%20Prompts.md)).*
-3. **AI tự kiểm định trước khi bàn giao:** Ở bước `/sdd-analyze` và `/sdd-implement`, chính AI sẽ đóng dấu mã commit Git khi bạn duyệt, chạy `validate-docs.py --require-tasks` kiểm tra tài liệu và ghi nhận bằng chứng kiểm thử vào `task-evidence/`.
-
-*(Đối với các chỉnh sửa nhỏ chỉ đổi giao diện/định dạng mà không làm thay đổi hành vi nghiệp vụ hay API, bạn có thể nhắn AI sửa trực tiếp theo nguyên tắc tối giản trong [3. AI Agent Workflow](docs/current/00%20-%20Onboarding/3.%20AI%20Agent%20Workflow.md) mà không cần tạo bộ 4 file).*
+| Tier | Scope and criteria | Slash-command workflow |
+|---|---|---|
+| **Tier S** | Sửa lỗi hồi quy / hotfix / chỉnh sửa nhỏ (**0 `AC-xx` mới**, không đổi schema hay API công khai). | `/sdd-fix <mô-tả-lỗi>` *(tạo test tái hiện lỗi trước -> sửa tối giản -> ghi `task-evidence/`).* |
+| **Tier M** | Tính năng nhỏ/vừa (**1–2 `AC-xx`**, không thêm mô hình dữ liệu bền vững mới hay tích hợp ngoài phức tạp). | `/sdd-specify <slug> --mini` -> `/sdd-clarify` -> `/sdd-analyze` -> `/sdd-implement` *(1 file `1. Mini Spec.md`).* |
+| **Tier L** | Tính năng lớn (**>= 3 `AC-xx`**, đổi schema/API, tích hợp bên thứ ba, đa tenant hoặc **AI Agent**). | `/sdd-specify <slug>` -> `/sdd-clarify` -> `/sdd-plan` -> `/sdd-tasks` -> `/sdd-analyze` -> `/sdd-implement` *(trọn bộ 4 file `1..4`).* |
 
 ---
 
-## 3. Cấu trúc thư mục & Các tuỳ chọn cài đặt
+## 3. Directory layout and setup options
 
-Sau khi chạy `setup.sh`, thư mục dự án của bạn sẽ có thêm các thành phần sau *(thư mục `docs/internal/` chỉ nằm ở repo nguồn của template, không được chép sang dự án của bạn)*:
+Sau khi chạy `setup.sh`, dự án của bạn được bổ sung các thành phần sau *(thư mục `docs/internal/` chỉ nằm ở repo phát triển template gốc, không được cài sang dự án của bạn)*:
 
 ```text
-AGENTS.md                   # Bộ quy tắc gốc điều hướng mọi AI Agent
-CLAUDE.md / GEMINI.md / ... # Các file cầu nối mỏng trỏ về AGENTS.md (tuỳ theo --models)
-.claude/skills/sdd-*/       # 7 lệnh tắt /sdd-* cho Claude Code (khi chọn runtime claude)
-.agents/skills/sdd-*/       # 7 lệnh tắt /sdd-* cho Antigravity CLI (khi chọn antigravity)
-.qwen/skills/sdd-*/         # 7 lệnh tắt /sdd-* cho Qwen Code (khi chọn qwen)
-template-manifest.json      # Ghi nhận phiên bản, preset, skills_enabled và file do template quản lý
-task-evidence/              # Nơi lưu bằng chứng kiểm thử cho các thay đổi hành vi
+AGENTS.md                          # Hiến pháp gốc điều hướng mọi AI Agent
+CLAUDE.md / GEMINI.md / QWEN.md    # Các file cầu nối mỏng (tuỳ theo --models / --set-models)
+.cursor/rules/agents.mdc           # Quy tắc alwaysApply cho Cursor (khi chọn cursor)
+.github/copilot-instructions.md    # Hướng dẫn tuỳ chỉnh cho GitHub Copilot (khi chọn copilot)
+.claude/skills/sdd-*/SKILL.md      # 8 lệnh tắt /sdd-* cho Claude Code (khi chọn claude)
+.agents/skills/sdd-*/SKILL.md      # 8 lệnh tắt /sdd-* dùng chung cho antigravity, opencode, codex, cursor, copilot
+.qwen/skills/sdd-*/SKILL.md        # 8 lệnh tắt /sdd-* cho Qwen Code (khi chọn qwen)
+template-manifest.json             # Lưu phiên bản, default_preset, requested_models, skills_enabled
+task-evidence/                     # Hồ sơ bằng chứng kiểm thử gắn với commit SHA 40 ký tự hex
 tools/
-  ├── new-feature.py        # Tạo nhanh thư mục tính năng 4 file đánh số tự động
-  ├── validate-docs.py      # Kiểm tra link, sơ đồ Mermaid và tính khớp nối giữa các file spec
-  ├── docs_validation.py    # Thư viện kiểm tra dùng chung cho validate-docs.py
-  ├── export-tasks.py       # Xuất danh sách công việc ra JSON/Markdown hoặc GitHub Issues
-  └── validate-task-evidence.py
+  ├── new-feature.py               # Tạo thư mục tính năng 4 file (Tier L) hoặc 1 file --mini (Tier M)
+  ├── validate-docs.py             # Kiểm định link, Mermaid, Clarify Gate, --strict SHA & chống sửa trộm sau duyệt
+  ├── docs_validation.py           # Thư viện kiểm định Markdown/spec dùng chung
+  ├── export-tasks.py              # Xuất công việc từ 4. Tasks.md hoặc 1. Mini Spec.md ra JSON/MD/GitHub Issues
+  └── validate-task-evidence.py    # Kiểm định bằng chứng theo git show hoặc --allow-working-tree (cho bản nháp)
 docs/
-  ├── current/              # Kho tài liệu thực tế của dự án (Onboarding, Overview, Architecture, Product Features...)
-  └── templates/            # Kho mẫu tái sử dụng & ví dụ mẫu (examples/ai-support-agent/)
+  ├── current/                     # Kho tài liệu thực tế của dự án (Onboarding 1..6, Overview, Architecture, Features...)
+  └── templates/                   # Kho mẫu tái sử dụng (feature-spec-template/, mini-spec-template/, examples/)
 ```
 
-**Bảng tra cứu nhanh các tuỳ chọn của `setup.sh`:**
-
-| Tuỳ chọn | Công dụng |
+| Option | Purpose |
 |---|---|
-| `--dry-run` | Xem trước danh sách file sẽ cài hoặc bỏ qua, không ghi xuống đĩa. |
-| `--preset <name>` | Đặt mẫu tính năng mặc định (`general`, `web-api`, `cli-tool`, `ai-agent`, hoặc tên thư mục tự tạo trong `docs/templates/presets/<name>/`). |
-| `--with-advanced-docs` | Cài thêm khung tài liệu chi tiết cho API, Backend, Infrastructure và User Manual. |
-| `--models <list>` | Chọn cài file cầu nối và bộ skill `/sdd-*` cho công cụ AI cụ thể (`claude`, `antigravity`, `qwen`, `gemma`, hoặc `all`). Dùng thêm `--interactive` nếu cần mở menu chọn trong pipe/PTY. Xem chi tiết tại [5. Model Runtime Instructions](docs/current/00%20-%20Onboarding/5.%20Model%20Runtime%20Instructions.md). |
-| `--without-skills` | Bỏ qua việc cài đặt 7 bộ skill `/sdd-*` (ghi `"skills_enabled": false` vào `template-manifest.json`; khi dùng kèm `--update` sẽ ngưng quản lý skill mà không xoá file sẵn có trên đĩa). |
-| `--with-legacy-agents` | Cài thêm bản sao `.agents/AGENTS.md` cho các công cụ cũ yêu cầu đường dẫn lồng. |
-| `--force` | Chủ động ghi đè các file thuộc template (vẫn luôn bảo vệ symlink không bị ghi đè). Nếu cài đặt bị ngắt giữa chừng, chỉ cần chạy lại lệnh để hoàn tất. |
-| `--doctor` | Chế độ chỉ đọc (read-only) giúp kiểm tra nhanh sức khoẻ toàn bộ cấu hình, bộ skill `/sdd-*` và tài liệu. |
+| `--dry-run` | Xem trước danh sách file sẽ tạo/cập nhật mà không ghi xuống ổ đĩa. |
+| `--preset <name>` | Đặt `default_preset` mặc định (`general`, `web-api`, `cli-tool`, `ai-agent` hoặc thư mục tuỳ biến trong `docs/templates/presets/<name>/`). |
+| `--models <list>` | Chọn cài đặt và cộng dồn công cụ AI runtime (`claude`, `antigravity`, `qwen`, `opencode`, `codex`, `cursor`, `copilot`, `gemma` hoặc `all`). Xem chi tiết tại [5. Model Runtime Instructions](docs/current/00%20-%20Onboarding/5.%20Model%20Runtime%20Instructions.md). |
+| `--set-models <list>` | Thay thế chính xác tập runtime đang quản lý (gỡ sạch các adapter/skill cũ do template quản lý không còn nằm trong danh sách mới, vẫn giữ nguyên file người dùng tự sửa). |
+| `--without-skills` | Bỏ qua việc cài đặt 8 kỹ năng `/sdd-*` và lưu `"skills_enabled": false` vào `template-manifest.json`. |
+| `--with-advanced-docs` | Cài thêm khung tài liệu mở rộng cho API, Service Layer, Infrastructure và User Manual. |
+| `--with-legacy-agents` | Tạo thêm bản sao `.agents/AGENTS.md` cho các công cụ đời cũ yêu cầu đường dẫn lồng. |
+| `--force` | Chủ động ghi đè các file thuộc quyền quản lý của template (vẫn từ chối đi xuyên qua symlink). |
+| `--doctor` | Kiểm tra toàn diện môi trường chỉ đọc (`read-only`) kèm hướng dẫn khắc phục cho từng mục lỗi. |
 
 ---
 
-## 4. Quy trình 6 bước làm tính năng (Spec-Driven Development)
+## 4. Three-tier Spec-Driven workflow and CLI tools
 
-Với các tính năng quan trọng trong `docs/current/05 - Product Features/`, bộ khung áp dụng chu trình 6 bước chuẩn (đã có sẵn prompt mẫu tại [6. Spec-Driven Feature Prompts](docs/current/00%20-%20Onboarding/6.%20Spec-Driven%20Feature%20Prompts.md)):
-
-`1. Specify (Chốt yêu cầu)` → `2. Clarify (Làm rõ điểm mơ hồ)` → `3. Plan (Thiết kế Tech & QA)` → `4. Tasks (Chia nhỏ việc)` → `5. Analyze (Kiểm tra & Duyệt)` → `6. Implement, Converge & Evidence (Viết code & Lưu bằng chứng)`
-
-> **Ai là người chạy các lệnh `tools/` dưới đây?** Khi bạn dùng AI Agent trực tiếp tại thư mục dự án (Antigravity, Claude Code, Cursor...), **AI sẽ tự động gọi các lệnh này ở hậu trường**. Bạn chỉ cần tự chạy tay khi muốn kiểm tra độc lập, gắn vào CI/CD (GitHub Actions), hoặc khi dùng trình chat AI trên trình duyệt web không có quyền truy cập thư mục máy tính:
+Khi bạn làm việc trong khung chat AI, Agent sẽ tự chạy các công cụ bên dưới; bạn cũng có thể gắn trực tiếp chúng vào pipeline CI/CD của dự án:
 
 ```bash
-# Xem các mẫu preset có sẵn
+# Liệt kê các preset có sẵn
 python3 tools/new-feature.py --list-presets
 
-# Khởi tạo bộ 4 file đặc tả tự động đánh số (ví dụ: 001-user-auth)
+# Khởi tạo tính năng Tier M (1 file 1. Mini Spec.md) hoặc Tier L (4 file 1..4)
+python3 tools/new-feature.py quick-filter --mini --preset web-api
 python3 tools/new-feature.py user-auth --preset web-api
 
-# Kiểm tra link, sơ đồ Mermaid, câu hỏi bỏ ngỏ, độ phủ AC-xx và xung đột chạy song song [P]
+# Kiểm tra liên kết, sơ đồ Mermaid, cổng Clarify, mã SHA 40 ký tự hex (--strict) và độ phủ AC-xx
 python3 tools/validate-docs.py --require-tasks
+python3 tools/validate-docs.py --strict
 
-# Xuất các task chưa làm sau khi bộ spec đã được duyệt (status: approved)
-python3 tools/export-tasks.py "docs/current/05 - Product Features/001-user-auth" --format json
-python3 tools/export-tasks.py "docs/current/05 - Product Features/001-user-auth" --apply-gh --repo OWNER/REPO
+# Xuất các task chưa hoàn thành từ gói 4 file hoặc Mini-Spec sau khi đã duyệt (status: approved)
+python3 tools/export-tasks.py "docs/current/05 - Product Features/002-user-auth" --format json
+python3 tools/export-tasks.py "docs/current/05 - Product Features/002-user-auth" --apply-gh --repo OWNER/REPO
 
-# Kiểm tra bản ghi bằng chứng hoàn thành trong task-evidence/
+# Kiểm tra hồ sơ bằng chứng ở chế độ nháp trước khi commit hoặc chế độ bắt buộc trên CI
+python3 tools/validate-task-evidence.py --allow-working-tree
 python3 tools/validate-task-evidence.py --require-completed
 ```
 
-- **Cổng kiểm duyệt trước khi code (Clarify & Pack-level Approval Gate):** Khi đang nháp (`status: draft`), mỗi file được giữ tối đa `3` câu hỏi `[NEEDS CLARIFICATION: ...]`. Trước khi chuyển sang `status: approved` để bắt đầu code, cả 4 file trong thư mục tính năng phải cùng đạt `approved`, không còn câu hỏi `[NEEDS CLARIFICATION: ...]`, không còn ô `- [ ]` bỏ trống, và điền đủ `approved_by`, `approved_at`, `approval_evidence` cùng mã commit `source_revision` (`git rev-parse HEAD` tại thời điểm duyệt).
-- **Tạo mẫu riêng cho nhóm (Custom Presets):** Đặt các file `.md` tuỳ biến của đội ngũ vào `docs/templates/presets/<slug>/`; thư mục này luôn được giữ nguyên khi nâng cấp template.
+- **Cổng phê duyệt & Chống sửa ngầm sau phê duyệt (Spec Amendment):** Trước khi chuyển sang `status: approved`, toàn bộ file đặc tả của tính năng phải sạch thẻ `[NEEDS CLARIFICATION: ...]`, sạch ô `- [ ]` mở và đóng dấu `source_revision` bằng mã commit Git 40 ký tự hex thường (`git rev-parse HEAD`). Sau khi đã duyệt, bảng `## Acceptance criteria` cùng các trường `Task ID`, `Owned paths`, `Verification` được khoá bất biến theo commit duyệt đầu tiên; muốn thay đổi hợp đồng phải thực hiện **Spec Amendment** kèm cập nhật lại `approved_at` và `source_revision`.
 
 ---
 
-## 5. Nâng cấp phiên bản mới (`--update`) & Kiểm tra sức khoẻ (`--doctor`)
+## 5. Template upgrade and health check
 
-### Nâng cấp Template (`--update` / Template upgrade)
+### Template upgrade
 
-Khi bộ template có phiên bản mới, đứng tại thư mục gốc dự án của bạn và xem trước kế hoạch nâng cấp trước khi áp dụng:
+Đứng tại thư mục gốc dự án của bạn và chạy xem trước kế hoạch nâng cấp trước khi áp dụng chính thức:
 
 ```bash
 bash /path/to/ai-project-template/setup.sh --dry-run --update
 bash /path/to/ai-project-template/setup.sh --dry-run --update --migration-plan ai-template-migration-plan.md
 bash /path/to/ai-project-template/setup.sh --update
+bash /path/to/ai-project-template/setup.sh --update --set-models claude,codex
 ```
 
-- **An toàn & Sao lưu tự động:** Yêu cầu dự án có `template-manifest.json` hợp lệ. Trước khi cập nhật, script tự động sao lưu các file cũ vào thư mục `.ai-template-backup.*` kèm hướng dẫn khôi phục trong `RECOVERY.md`.
-- **Giữ nguyên tuỳ biến riêng:** Bảo toàn các file adapter, `SKILL.md` tự tạo hoặc script trong `tools/` do bạn tự viết, giữ nguyên `default_preset`, trạng thái `skills_enabled` và các custom preset trong `docs/templates/presets/` (có thể đổi bằng `--update --preset <name>` hoặc tắt quản lý skill bằng `--update --without-skills`). Với các bản cũ `v0.4.0–v0.4.2`, hãy truyền rõ `--with-advanced-docs` hoặc `--with-legacy-agents` nếu muốn nâng cấp kèm các gói đó.
-- **Xuất báo cáo di trú (`--migration-plan`):** Ghi chi tiết danh sách file sẽ cập nhật, giữ nguyên hoặc cần xử lý thủ công ra file `.md` hoặc `.json` (không ghi đè nếu file báo cáo đã tồn tại).
+- **Sao lưu tự động & Bảo toàn tuỳ biến:** Yêu cầu `template-manifest.json` hợp lệ, tự động sao lưu các file cũ vào `.ai-template-backup.*` kèm hướng dẫn khôi phục trong `RECOVERY.md`, và giữ nguyên mọi file adapter/skill/script hoặc custom preset (`docs/templates/presets/`) đã được đội ngũ tuỳ biến riêng.
 
-### Kiểm tra mức độ sẵn sàng (`--doctor`)
-
-Bất cứ lúc nào muốn kiểm tra xem dự án đã cấu hình đúng chưa, hãy chạy:
+### Readiness health check
 
 ```bash
 bash /path/to/ai-project-template/setup.sh --doctor
 ```
 
-Lệnh `--doctor` kiểm tra phiên bản Bash/Python, file `AGENTS.md`, các công cụ AI và file adapter đã chọn, `template-manifest.json`, bộ công cụ `tools/`, các file skill `/sdd-*` do template quản lý, toàn bộ đường dẫn Markdown nội bộ và trạng thái sẵn sàng của các bản spec (chỉ cảnh báo `WARN` với feature 3 file đời cũ chưa có `4. Tasks.md`; riêng Gemma/custom harness sẽ báo `NOT READY` nhắc bạn tự xác nhận cấu hình system prompt ở phía host).
+Lệnh `--doctor` rà soát phiên bản Bash/Python, `AGENTS.md`, cấu hình của 8 runtime, `template-manifest.json`, bộ công cụ `tools/`, 8 kỹ năng `/sdd-*`, toàn bộ liên kết Markdown nội bộ và tính hợp lệ của các thư mục đặc tả (riêng `gemma`/custom harness sẽ hiển thị `NOT READY` cho đến khi phía host xác nhận cơ chế tiêm system prompt).
 
 ---
 
-## 6. Dành cho người phát triển bộ Template này (Testing & CI)
+## 6. Template development and CI validation
 
-*(Nếu bạn chỉ cài bộ khung này vào dự án Web của mình, bạn **không cần** chạy phần dưới đây. Gợi ý cho CI dự án của bạn: chỉ cần đưa `python3 tools/validate-docs.py --require-tasks` và `python3 tools/validate-task-evidence.py --require-completed` vào bước kiểm tra Pull Request).*
-
-Để kiểm định chính bộ mã nguồn `ai-project-template` này, chạy trọn bộ bài kiểm tra hồi quy từ thư mục gốc của repo template:
+*(Phần này chỉ dành cho người đóng góp phát triển chính kho nguồn `ai-project-template`. Đối với CI dự án của bạn, chỉ cần đưa `python3 tools/validate-docs.py --require-tasks` và `python3 tools/validate-task-evidence.py --require-completed` vào bước kiểm tra Pull Request).*
 
 ```bash
 bash -n setup.sh tests/setup.sh tests/validate-docs.sh tests/render-mermaid.sh template-paths.sh
@@ -184,4 +165,4 @@ python3 -B tests/validate-antigravity-conformance-fixture.py
 python3 -B tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
 ```
 
-GitHub Actions tại `.github/workflows/ai-template-validation.yml` tự động chạy toàn bộ các bước kiểm tra trên kèm kiểm định render sơ đồ Mermaid (`@mermaid-js/mermaid-cli`) trên cả Linux và macOS.
+GitHub Actions tại `.github/workflows/ai-template-validation.yml` tự động chạy toàn bộ bài kiểm tra hồi quy trên kèm bước biên dịch thực tế toàn bộ sơ đồ Mermaid (`@mermaid-js/mermaid-cli`) trên cả Linux và macOS.

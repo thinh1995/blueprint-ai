@@ -2,14 +2,23 @@
 
 import posixpath
 import re
+import subprocess
+import sys
+import urllib.parse
 from pathlib import Path, PurePosixPath
 
+sys.dont_write_bytecode = True
+
+MINI_SPEC_FILE = "1. Mini Spec.md"
 NUMBERED_SPEC_FILES = {
     "1. Product Spec.md",
     "2. Tech Spec.md",
     "3. QA Spec.md",
     "4. Tasks.md",
 }
+SPEC_PACK_FILES = NUMBERED_SPEC_FILES | {MINI_SPEC_FILE}
+VALID_SPEC_STATUSES = {"draft", "approved", "example", "superseded", "archived"}
+
 APPROVAL_FIELDS = (
     "approved_by",
     "approved_at",
@@ -41,6 +50,11 @@ TASK_COLUMNS = (
     "verification",
 )
 VALID_TASK_STATUSES = {"todo", "in-progress", "done", "blocked"}
+FORBIDDEN_URI_SCHEMES = ("file:", "javascript:", "data:", "vbscript:", "obsidian:")
+ALLOWED_EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
+SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+SEQ_PREFIX_RE = re.compile(r"^(\d{3})-")
 
 
 def require(condition: bool, message: str) -> None:
@@ -48,13 +62,27 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+def read_markdown(path: Path) -> str:
+    """Read UTF-8 (with optional BOM) Markdown and normalize CRLF/CR line endings."""
+    return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+
+
+# Backward-compatible alias for existing callers (e.g. validate-template-docs.py).
+read = read_markdown
+
+
+def strip_outer_backticks(value: str) -> str:
+    """Unwrap matching outer backtick code spans around a scalar table cell."""
+    stripped = value.strip()
+    match = re.fullmatch(r"(`+)([^`]*)\1", stripped)
+    if match:
+        return match.group(2).strip()
+    return stripped
 
 
 def strip_fenced_code(markdown_text: str) -> str:
     """Remove CommonMark fenced code blocks while preserving line structure."""
-    text = markdown_text.replace("\r\n", "\n")
+    text = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     out_lines: list[str] = []
     fence_char = ""
     fence_len = 0
@@ -83,9 +111,42 @@ def strip_code(markdown_text: str) -> str:
     return re.sub(r"(`+)([^\n]*?)\1", "", without_fences)
 
 
+def _strip_yaml_scalar(raw_val: str) -> str:
+    val = raw_val.strip()
+    if not val:
+        return ""
+    if val[0] in {'"', "'"}:
+        quote = val[0]
+        idx = 1
+        out: list[str] = []
+        while idx < len(val):
+            ch = val[idx]
+            if quote == '"' and ch == "\\" and idx + 1 < len(val):
+                nxt = val[idx + 1]
+                escapes = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t", "/": "/"}
+                out.append(escapes.get(nxt, nxt))
+                idx += 2
+                continue
+            if quote == "'" and ch == "'" and idx + 1 < len(val) and val[idx + 1] == "'":
+                out.append("'")
+                idx += 2
+                continue
+            if ch == quote:
+                trailing = val[idx + 1 :].strip()
+                if not trailing or trailing.startswith("#"):
+                    return "".join(out).strip()
+                break
+            out.append(ch)
+            idx += 1
+        if len(val) >= 2 and val[-1] == quote:
+            return val[1:-1].strip()
+        return val
+    return re.split(r"[ \t]+#", val, maxsplit=1)[0].strip()
+
+
 def parse_frontmatter(markdown_text: str) -> dict[str, str]:
-    """Parse optional leading YAML scalar frontmatter."""
-    text = markdown_text.replace("\r\n", "\n")
+    """Parse optional leading YAML scalar frontmatter (stripping quotes and inline comments)."""
+    text = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     match = re.match(r"^---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|$)", text, flags=re.DOTALL)
     if not match:
         return {}
@@ -97,12 +158,53 @@ def parse_frontmatter(markdown_text: str) -> dict[str, str]:
             continue
         key, raw_val = line.split(":", 1)
         key = key.strip()
-        val = raw_val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:
-            val = val[1:-1].strip()
         if key:
-            result[key] = val
+            result[key] = _strip_yaml_scalar(raw_val)
     return result
+
+
+def extract_mermaid_blocks(markdown_text: str, rel_label: str = "<markdown>") -> list[tuple[int, str]]:
+    """Extract (start_line_1based, diagram_body) via a fence-length-aware state machine."""
+    text = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    blocks: list[tuple[int, str]] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    is_mermaid = False
+    start_line = 0
+    current_lines: list[str] = []
+
+    for line_no, line in enumerate(text.split("\n"), start=1):
+        if not in_fence:
+            m_bt = re.match(r"^[ \t]*(`{3,})([^`]*)$", line)
+            m_td = None if m_bt else re.match(r"^[ \t]*(~{3,})(.*)$", line)
+            m = m_bt or m_td
+            if m:
+                in_fence = True
+                fence_char = m.group(1)[0]
+                fence_len = len(m.group(1))
+                info = m.group(2).strip()
+                info_token = info.split()[0].lower() if info else ""
+                if info_token == "mermaid":
+                    is_mermaid = True
+                    start_line = line_no
+                    current_lines = []
+                else:
+                    is_mermaid = False
+        else:
+            if re.match(rf"^[ \t]*{re.escape(fence_char)}{{{fence_len},}}[ \t]*$", line):
+                if is_mermaid:
+                    blocks.append((start_line, "\n".join(current_lines)))
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+                is_mermaid = False
+                current_lines = []
+            elif is_mermaid:
+                current_lines.append(line)
+
+    require(not (in_fence and is_mermaid), f"{rel_label}: malformed or unclosed Mermaid fence")
+    return blocks
 
 
 def _iter_h2_sections(markdown_text: str, heading: str) -> list[str]:
@@ -136,11 +238,11 @@ def _split_table_row(line: str) -> list[str] | None:
 
 
 def _is_separator_row(cells: list[str]) -> bool:
-    return bool(cells) and all(bool(re.fullmatch(r":?-{3,}:?", cell)) for cell in cells)
+    return bool(cells) and all(bool(re.fullmatch(r":?-{3,}:?", cell.replace(" ", ""))) for cell in cells)
 
 
 def _extract_section_table_rows(
-    rel_path: Path,
+    rel_path: Path | str,
     raw_text: str,
     section_heading: str,
     required_columns: tuple[str, ...],
@@ -210,98 +312,190 @@ def _extract_acs_from_rows(rows: list[dict[str, str]] | None, column: str) -> se
     return acs
 
 
+def _parse_markdown_link_destination(raw_inside: str) -> str:
+    inside = raw_inside.strip()
+    if inside.startswith("<"):
+        gt = inside.find(">")
+        if gt != -1:
+            return inside[1:gt].strip()
+    m_title = re.match(r'^(\S+?)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?$', inside)
+    if m_title:
+        return m_title.group(1).strip()
+    return inside
+
+
+def _ensure_within_root_no_symlink(root_resolved: Path, start_dir: Path, rel_target: str, err_prefix: str) -> Path:
+    candidate = start_dir / rel_target
+    try:
+        resolved = candidate.resolve()
+    except OSError as exc:
+        raise ValueError(f"{err_prefix}: invalid link target {rel_target} ({exc})") from exc
+    require(resolved.is_relative_to(root_resolved), f"{err_prefix}: Markdown link target escapes project root {rel_target}")
+
+    rel_parts = resolved.relative_to(root_resolved).parts
+    cur = root_resolved
+    for part in rel_parts:
+        cur = cur / part
+        require(not cur.is_symlink(), f"{err_prefix}: symlinked link target refused {rel_target}")
+    return resolved
+
+
 def validate_links(root: Path, docs_root: Path, files: list[Path]) -> None:
-    relative_paths = {path.relative_to(docs_root).with_suffix("").as_posix() for path in files}
+    root_resolved = root.resolve()
+    docs_resolved = docs_root.resolve()
+    relative_paths = {path.resolve().relative_to(docs_resolved).with_suffix("").as_posix() for path in files}
     stems: dict[str, list[Path]] = {}
     for path in files:
         stems.setdefault(path.stem, []).append(path)
 
-    wiki = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
-    markdown = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+    all_doc_assets: dict[str, Path] = {}
+    assets_by_name: dict[str, list[Path]] = {}
+    if docs_resolved.is_dir():
+        for asset in sorted(docs_resolved.rglob("*")):
+            if asset.is_symlink() or not asset.is_file():
+                continue
+            rel_posix = asset.relative_to(docs_resolved).as_posix()
+            if "internal" in asset.relative_to(docs_resolved).parts:
+                continue
+            all_doc_assets[rel_posix] = asset
+            assets_by_name.setdefault(asset.name, []).append(asset)
+
+    wiki = re.compile(r"(!?)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+    markdown = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+
     for path in files:
-        content = strip_code(read(path))
+        rel_doc_label = path.relative_to(root)
+        path_resolved = path.resolve()
+        content = strip_code(read_markdown(path))
+
         for match in wiki.finditer(content):
-            target = match.group(1).strip().replace("\\", "/")
-            relative = posixpath.normpath((path.parent.relative_to(docs_root) / target).as_posix())
-            current = f"current/{target}"
-            if target in relative_paths or relative in relative_paths or current in relative_paths:
+            is_embed = match.group(1) == "!"
+            raw_target = match.group(2).strip()
+            unquoted = urllib.parse.unquote(raw_target).strip().replace("\\", "/")
+            double_unquoted = urllib.parse.unquote(unquoted).strip().lower()
+            for bad_scheme in FORBIDDEN_URI_SCHEMES:
+                require(
+                    not unquoted.lower().startswith(bad_scheme) and not double_unquoted.startswith(bad_scheme),
+                    f"{rel_doc_label}: unsupported URI scheme {bad_scheme} in [[{raw_target}]]",
+                )
+            require(
+                not unquoted.startswith("/"),
+                f"{rel_doc_label}: link target escapes project root [[{raw_target}]]",
+            )
+            if ".." in unquoted.split("/"):
+                parent_check = (path_resolved.parent / unquoted).resolve()
+                docs_check = (docs_resolved / unquoted).resolve()
+                require(
+                    parent_check.is_relative_to(root_resolved) and docs_check.is_relative_to(root_resolved),
+                    f"{rel_doc_label}: link target escapes project root [[{raw_target}]]",
+                )
+
+            target_no_md = unquoted[:-3] if unquoted.lower().endswith(".md") else unquoted
+            parent_rel = posixpath.normpath((path_resolved.parent.relative_to(docs_resolved) / target_no_md).as_posix())
+            current_rel = posixpath.normpath(f"current/{target_no_md}")
+            if (
+                target_no_md in relative_paths
+                or (not parent_rel.startswith("..") and parent_rel in relative_paths)
+                or (not current_rel.startswith("..") and current_rel in relative_paths)
+            ):
                 continue
-            require(len(stems.get(target, [])) == 1, f"{path.relative_to(root)}: unresolved or ambiguous link [[{target}]]")
+            if "/" not in target_no_md and len(stems.get(target_no_md, [])) == 1:
+                continue
+
+            # Check vault asset files (for ![[diagram.png]] or [[assets/diagram.png]] or [[Note.md]]).
+            parent_asset_rel = posixpath.normpath((path_resolved.parent.relative_to(docs_resolved) / unquoted).as_posix())
+            current_asset_rel = posixpath.normpath(f"current/{unquoted}")
+            if (
+                unquoted in all_doc_assets
+                or (not parent_asset_rel.startswith("..") and parent_asset_rel in all_doc_assets)
+                or (not current_asset_rel.startswith("..") and current_asset_rel in all_doc_assets)
+            ):
+                continue
+            if "/" not in unquoted and len(assets_by_name.get(unquoted, [])) == 1:
+                continue
+
+            prefix = "!" if is_embed else ""
+            raise ValueError(f"{rel_doc_label}: unresolved or ambiguous link {prefix}[[{raw_target}]]")
+
         for match in markdown.finditer(content):
-            target = match.group(1).split("#", 1)[0]
-            require(not target.lower().startswith("file:"), f"{path.relative_to(root)}: unsupported Markdown URI scheme file:")
-            if not target or "://" in target or target.startswith("mailto:"):
+            dest = _parse_markdown_link_destination(match.group(1))
+            if not dest or dest.startswith("#"):
                 continue
-            candidate = (path.parent / target).resolve()
-            require(candidate.is_relative_to(root), f"{path.relative_to(root)}: Markdown link target escapes project root {target}")
-            require(candidate.is_file(), f"{path.relative_to(root)}: missing Markdown link target {target}")
+            target_before_frag = dest.split("#", 1)[0].strip()
+            if not target_before_frag:
+                continue
+
+            decoded = urllib.parse.unquote(target_before_frag).strip()
+            decoded_twice_lower = urllib.parse.unquote(decoded).strip().lower()
+            decoded_lower = decoded.lower()
+
+            for bad_scheme in FORBIDDEN_URI_SCHEMES:
+                require(
+                    not decoded_lower.startswith(bad_scheme) and not decoded_twice_lower.startswith(bad_scheme),
+                    f"{rel_doc_label}: unsupported Markdown URI scheme {bad_scheme}",
+                )
+            if decoded_lower.startswith(ALLOWED_EXTERNAL_SCHEMES):
+                continue
+            require(
+                not SCHEME_RE.match(decoded),
+                f"{rel_doc_label}: unsupported Markdown URI scheme in {target_before_frag}",
+            )
+            require(
+                "\\" not in decoded and not decoded.startswith("/"),
+                f"{rel_doc_label}: Markdown link target escapes project root {target_before_frag}",
+            )
+
+            resolved = _ensure_within_root_no_symlink(
+                root_resolved,
+                path_resolved.parent,
+                decoded,
+                str(rel_doc_label),
+            )
+            require(resolved.is_file(), f"{rel_doc_label}: missing Markdown link target {target_before_frag}")
+
+
+def _strip_mermaid_preamble(rel_label: Path | str, diagram: str) -> str:
+    cleaned = diagram.lstrip()
+    if cleaned.startswith("---"):
+        fm_match = re.match(r"^---[ \t]*\n.*?\n---[ \t]*(?:\n|$)", cleaned, flags=re.S)
+        if fm_match:
+            cleaned = cleaned[fm_match.end() :]
+    while True:
+        cleaned = cleaned.lstrip()
+        if cleaned.startswith("%%{"):
+            m_dir = re.match(r"^%%\{.*?\}%%[ \t]*(?:\n|$)", cleaned, flags=re.S)
+            require(m_dir is not None, f"{rel_label}: unclosed Mermaid directive %%{{...}}%%")
+            assert m_dir is not None
+            cleaned = cleaned[m_dir.end() :]
+            continue
+        if cleaned.startswith("%%"):
+            m_cmt = re.match(r"^%%[^\n]*(?:\n|$)", cleaned)
+            cleaned = cleaned[m_cmt.end() :] if m_cmt else ""
+            continue
+        break
+    return cleaned
 
 
 def validate_mermaid(root: Path, files: list[Path]) -> None:
-    block = re.compile(r"(?ms)^```mermaid[ \t]*\n(.*?)^```[ \t]*$")
     for path in files:
-        content = read(path)
-        diagrams = block.findall(content)
-        require(content.count("```mermaid") == len(diagrams), f"{path.relative_to(root)}: malformed or unclosed Mermaid fence")
-        for diagram in diagrams:
-            require(bool(diagram.strip()), f"{path.relative_to(root)}: empty Mermaid diagram")
-            require(bool(re.match(r"[A-Za-z][A-Za-z0-9_-]*", diagram.lstrip())), f"{path.relative_to(root)}: Mermaid diagram has no type")
-
-
-def validate_clarify_gate(root: Path, files: list[Path]) -> None:
-    for path in files:
-        raw = read(path)
-        fm = parse_frontmatter(raw)
-        status = fm.get("status", "").strip().lower()
-        if status not in {"draft", "approved", "example"}:
-            continue
-        rel_path = path.relative_to(root)
-        stripped = strip_code(raw)
-
-        if status == "draft":
-            markers = re.findall(r"\[NEEDS CLARIFICATION\b[^\]]*\]", stripped, flags=re.I)
+        rel_label = path.relative_to(root)
+        blocks = extract_mermaid_blocks(read_markdown(path), str(rel_label))
+        for _line_no, diagram in blocks:
+            require(bool(diagram.strip()), f"{rel_label}: empty Mermaid diagram")
+            cleaned = _strip_mermaid_preamble(rel_label, diagram)
+            require(bool(cleaned.strip()), f"{rel_label}: empty Mermaid diagram")
             require(
-                len(markers) <= 3,
-                f"{rel_path}: status: draft allows at most 3 [NEEDS CLARIFICATION] markers (found {len(markers)})",
+                bool(re.match(r"[A-Za-z][A-Za-z0-9_-]*", cleaned)),
+                f"{rel_label}: Mermaid diagram has no type",
             )
-            continue
-
-        if path.name in NUMBERED_SPEC_FILES:
-            for field in APPROVAL_FIELDS:
-                val = fm.get(field, "").strip()
-                require(
-                    bool(val),
-                    f"{rel_path}: status: {status} requires non-empty frontmatter '{field}'",
-                )
-                if status == "approved":
-                    require(
-                        val.lower() not in FORBIDDEN_APPROVED_PLACEHOLDERS,
-                        f"{rel_path}: status: approved forbids placeholder value '{val}' in '{field}'",
-                    )
-
-        require(
-            not re.search(r"\[NEEDS CLARIFICATION\b", stripped, flags=re.I),
-            f"{rel_path}: status: {status} forbids unresolved [NEEDS CLARIFICATION] markers",
-        )
-        for section_name in READINESS_SECTIONS:
-            for section_body in _iter_h2_sections(stripped, section_name):
-                require(
-                    not re.search(r"(?m)^[ \t]*-\s*\[ \]", section_body),
-                    f"{rel_path}: status: {status} forbids unchecked '- [ ]' items in '## {section_name}'",
-                )
 
 
-def _parse_owned_paths(rel_path: Path, task_id: str, cell: str) -> list[PurePosixPath]:
+def _parse_owned_paths(rel_path: Path | str, task_id: str, cell: str) -> tuple[list[PurePosixPath], list[str]]:
     paths: list[PurePosixPath] = []
-    outer_match = re.fullmatch(r"(`+)([^`]*)\1", cell.strip())
-    unwrapped = outer_match.group(2) if outer_match else cell
+    raw_tokens: list[str] = []
+    unwrapped = strip_outer_backticks(cell)
     for raw_item in unwrapped.split(","):
-        cleaned = raw_item.strip()
-        if not cleaned:
-            continue
-        code_match = re.fullmatch(r"(`+)([^`]*)\1", cleaned)
-        if code_match:
-            cleaned = code_match.group(2).strip()
+        cleaned = strip_outer_backticks(raw_item.strip())
         if not cleaned:
             continue
         require(
@@ -315,7 +509,7 @@ def _parse_owned_paths(rel_path: Path, task_id: str, cell: str) -> list[PurePosi
             f"{rel_path}: task {task_id} Owned path '{cleaned}' contains invalid path characters",
         )
         require(
-            not cleaned.startswith("/"),
+            not cleaned.startswith("/") and not cleaned.startswith("~"),
             f"{rel_path}: task {task_id} Owned path '{cleaned}' must be relative to project root",
         )
         trimmed = cleaned.rstrip("/")
@@ -325,20 +519,44 @@ def _parse_owned_paths(rel_path: Path, task_id: str, cell: str) -> list[PurePosi
             f"{rel_path}: task {task_id} Owned path '{cleaned}' contains invalid '.' or '..' segments",
         )
         paths.append(PurePosixPath(trimmed))
+        raw_tokens.append(cleaned)
 
     require(bool(paths), f"{rel_path}: task {task_id} must declare at least one Owned path")
-    return paths
+    return paths, raw_tokens
 
 
-def _validate_tasks_rows(rel_path: Path, rows: list[dict[str, str]]) -> None:
+def parse_execution_tasks(
+    rel_path: Path | str,
+    raw_text: str,
+    require_table: bool = True,
+) -> list[dict[str, object]] | None:
+    """Parse and validate '## Execution tasks' table rows with cycle and [P] overlap checks."""
+    rows = _extract_section_table_rows(
+        rel_path,
+        raw_text,
+        "Execution tasks",
+        TASK_COLUMNS,
+        require_table=require_table,
+    )
+    if rows is None:
+        return None
+    if require_table:
+        require(
+            bool(rows),
+            f"{rel_path}: '## Execution tasks' must define at least one task row",
+        )
+    if not rows:
+        return []
+
     task_order: list[str] = []
     seen_ids: set[str] = set()
     raw_deps: dict[str, list[str]] = {}
     parallel_flags: dict[str, str] = {}
-    owned_paths: dict[str, list[PurePosixPath]] = {}
+    owned_paths_map: dict[str, list[PurePosixPath]] = {}
+    parsed_tasks: list[dict[str, object]] = []
 
     for row in rows:
-        tid = row["task id"].strip()
+        tid = strip_outer_backticks(row["task id"]).strip()
         require(
             bool(re.fullmatch(r"T-\d+", tid)),
             f"{rel_path}: invalid Task ID '{tid}' (expected T-xx)",
@@ -347,21 +565,21 @@ def _validate_tasks_rows(rel_path: Path, rows: list[dict[str, str]]) -> None:
         seen_ids.add(tid)
         task_order.append(tid)
 
-        status_val = row["status"].strip().lower()
+        status_val = strip_outer_backticks(row["status"]).strip().lower()
         require(
             status_val in VALID_TASK_STATUSES,
             f"{rel_path}: task {tid} has invalid Status '{row['status']}' "
             f"(expected one of: {', '.join(sorted(VALID_TASK_STATUSES))})",
         )
 
-        p_val = row["[p]"].strip().lower()
+        p_val = strip_outer_backticks(row["[p]"]).strip().lower()
         require(
             p_val in {"yes", "no"},
             f"{rel_path}: task {tid} has invalid [P] value '{row['[p]']}' (expected yes or no)",
         )
         parallel_flags[tid] = p_val
 
-        dep_cell = row["depends on"].strip()
+        dep_cell = row["depends on"].replace("`", "").strip()
         if dep_cell in {"", "-"}:
             deps: list[str] = []
         else:
@@ -373,7 +591,37 @@ def _validate_tasks_rows(rel_path: Path, rows: list[dict[str, str]]) -> None:
                 )
                 require(dep != tid, f"{rel_path}: task {tid} cannot depend on itself")
         raw_deps[tid] = deps
-        owned_paths[tid] = _parse_owned_paths(rel_path, tid, row["owned paths"])
+
+        ac_cell_clean = strip_outer_backticks(row["related ac"]).strip()
+        related_ac = list(dict.fromkeys(re.findall(r"\bAC-\d+\b", row["related ac"])))
+        if not related_ac:
+            require(
+                ac_cell_clean == "-",
+                f"{rel_path}: task {tid} Related AC must reference AC-xx or '-' (got '{row['related ac']}')",
+            )
+
+        posix_paths, raw_path_tokens = _parse_owned_paths(rel_path, tid, row["owned paths"])
+        owned_paths_map[tid] = posix_paths
+
+        summary = row["summary"].strip()
+        require(bool(summary), f"{rel_path}: task {tid} Summary must not be empty")
+
+        verification = strip_outer_backticks(row["verification"]).strip()
+        require(bool(verification), f"{rel_path}: task {tid} Verification must not be empty")
+
+        parsed_tasks.append(
+            {
+                "task_id": tid,
+                "status": status_val,
+                "parallel": p_val == "yes",
+                "depends_on": deps,
+                "related_ac": related_ac,
+                "owned_paths": raw_path_tokens,
+                "owned_paths_posix": [p.as_posix() for p in posix_paths],
+                "summary": summary,
+                "verification": verification,
+            }
+        )
 
     for tid in task_order:
         for dep in raw_deps[tid]:
@@ -423,40 +671,359 @@ def _validate_tasks_rows(rel_path: Path, rows: list[dict[str, str]]) -> None:
                 continue
             if reaches(tid_a, tid_b) or reaches(tid_b, tid_a):
                 continue
-            for pa in owned_paths[tid_a]:
-                for pb in owned_paths[tid_b]:
+            for pa in owned_paths_map[tid_a]:
+                for pb in owned_paths_map[tid_b]:
                     if pa == pb or pa.is_relative_to(pb) or pb.is_relative_to(pa):
                         raise ValueError(
                             f"{rel_path}: parallel [P] tasks {tid_a} ('{pa.as_posix()}') and "
                             f"{tid_b} ('{pb.as_posix()}') have overlapping Owned paths"
                         )
 
+    return parsed_tasks
+
+
+def _normalize_ac_contract(rel_path: Path | str, raw_text: str) -> list[tuple[tuple[str, str], ...]]:
+    rows = _extract_section_table_rows(
+        rel_path,
+        raw_text,
+        "Acceptance criteria",
+        ("id",),
+        require_table=False,
+    )
+    if not rows:
+        return []
+    normalized: list[tuple[tuple[str, str], ...]] = []
+    for row in rows:
+        normalized.append(
+            tuple(sorted((k, re.sub(r"\s+", " ", v.strip())) for k, v in row.items()))
+        )
+    return normalized
+
+
+def _normalize_task_contract(rel_path: Path | str, raw_text: str) -> list[tuple[str, tuple[str, ...], str]]:
+    tasks = parse_execution_tasks(rel_path, raw_text, require_table=False)
+    if not tasks:
+        return []
+    out: list[tuple[str, tuple[str, ...], str]] = []
+    for t in tasks:
+        out.append(
+            (
+                str(t["task_id"]),
+                tuple(t["owned_paths_posix"]),  # type: ignore[arg-type]
+                re.sub(r"\s+", " ", str(t["verification"]).strip()),
+            )
+        )
+    return out
+
+
+def _find_earliest_approved_baseline(
+    root: Path,
+    posix_spec_path: str,
+    source_revision: str,
+) -> str | None:
+    """Return historical file text at the earliest Git commit where status=approved & source_revision matches."""
+    commit_candidates: list[str] = []
+    for log_cmd in (
+        ["git", "log", "--format=%H", "--reverse", "-S", source_revision, "--", posix_spec_path],
+        ["git", "log", "--format=%H", "--reverse", "--", posix_spec_path],
+    ):
+        proc = subprocess.run(log_cmd, cwd=root, capture_output=True, text=True)
+        if proc.returncode == 0 and proc.stdout.strip():
+            for sha in proc.stdout.splitlines():
+                sha_clean = sha.strip()
+                if sha_clean and sha_clean not in commit_candidates:
+                    commit_candidates.append(sha_clean)
+        if commit_candidates:
+            for sha in commit_candidates:
+                show_proc = subprocess.run(
+                    ["git", "show", f"{sha}:{posix_spec_path}"],
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                )
+                if show_proc.returncode != 0:
+                    continue
+                hist_raw = show_proc.stdout.replace("\r\n", "\n").replace("\r", "\n")
+                hist_fm = parse_frontmatter(hist_raw)
+                if (
+                    hist_fm.get("status", "").strip().lower() == "approved"
+                    and hist_fm.get("source_revision", "").strip() == source_revision
+                ):
+                    return hist_raw
+            commit_candidates.clear()
+    return None
+
+
+def _check_approved_source_revision(
+    root: Path,
+    spec_path: Path,
+    raw: str,
+    fm: dict[str, str],
+    strict: bool,
+) -> list[str]:
+    warnings: list[str] = []
+    if spec_path.name not in SPEC_PACK_FILES:
+        return warnings
+    if fm.get("status", "").strip().lower() != "approved":
+        return warnings
+
+    rel_path = spec_path.relative_to(root)
+    src_rev = fm.get("source_revision", "").strip()
+    require(bool(src_rev), f"{rel_path}: status: approved requires non-empty frontmatter 'source_revision'")
+    require(
+        src_rev.lower() not in FORBIDDEN_APPROVED_PLACEHOLDERS,
+        f"{rel_path}: status: approved forbids placeholder value '{src_rev}' in 'source_revision'",
+    )
+    require(
+        not re.fullmatch(r"0+", src_rev),
+        f"{rel_path}: status: approved forbids all-zero source_revision '{src_rev}'",
+    )
+
+    if not HEX40_RE.fullmatch(src_rev):
+        if strict:
+            raise ValueError(
+                f"{rel_path}: status: approved requires 40-char lowercase hex Git SHA in source_revision (got '{src_rev}')"
+            )
+        warnings.append(
+            f"{rel_path}: legacy non-40-hex source_revision '{src_rev}' on approved spec (enforced as error with --strict)"
+        )
+        return warnings
+
+    if not (root / ".git").exists():
+        return warnings
+
+    try:
+        cat_proc = subprocess.run(
+            ["git", "cat-file", "-e", f"{src_rev}^{{commit}}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        if strict:
+            raise ValueError(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+        warnings.append(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+        return warnings
+
+    if cat_proc.returncode != 0:
+        shallow_proc = subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        is_shallow = shallow_proc.returncode == 0 and shallow_proc.stdout.strip() == "true"
+        if is_shallow and not strict:
+            warnings.append(f"{rel_path}: source_revision '{src_rev}' not present in shallow Git clone")
+            return warnings
+        raise ValueError(
+            f"{rel_path}: source_revision '{src_rev}' is not a valid commit object in Git history"
+        )
+
+    posix_spec_path = rel_path.as_posix()
+    baseline_raw = _find_earliest_approved_baseline(root, posix_spec_path, src_rev)
+    if baseline_raw is None:
+        return warnings
+
+    if spec_path.name in {"1. Product Spec.md", MINI_SPEC_FILE}:
+        hist_ac = _normalize_ac_contract(rel_path, baseline_raw)
+        curr_ac = _normalize_ac_contract(rel_path, raw)
+        require(
+            hist_ac == curr_ac,
+            f"{rel_path}: post-approval tampering detected in '## Acceptance criteria' without refreshing "
+            "source_revision and approved_at",
+        )
+
+    if spec_path.name in {"4. Tasks.md", MINI_SPEC_FILE}:
+        hist_tasks = _normalize_task_contract(rel_path, baseline_raw)
+        curr_tasks = _normalize_task_contract(rel_path, raw)
+        require(
+            hist_tasks == curr_tasks,
+            f"{rel_path}: post-approval tampering detected in '## Execution tasks' (Owned paths / Verification) "
+            "without refreshing source_revision and approved_at",
+        )
+
+    return warnings
+
+
+def validate_clarify_gate(root: Path, files: list[Path], strict: bool = False) -> list[str]:
+    warnings: list[str] = []
+    for path in files:
+        raw = read_markdown(path)
+        fm = parse_frontmatter(raw)
+        status = fm.get("status", "").strip().lower()
+        rel_path = path.relative_to(root)
+
+        if path.name in SPEC_PACK_FILES:
+            require(
+                status in VALID_SPEC_STATUSES,
+                f"{rel_path}: invalid or missing frontmatter status '{status or 'missing'}' "
+                f"(expected one of: {', '.join(sorted(VALID_SPEC_STATUSES))})",
+            )
+        elif status:
+            valid_note_statuses = VALID_SPEC_STATUSES | {"active", "template", "completed", "skipped"}
+            require(
+                status in valid_note_statuses,
+                f"{rel_path}: invalid frontmatter status '{status}' "
+                f"(expected one of: {', '.join(sorted(valid_note_statuses))})",
+            )
+
+        if status in {"superseded", "archived"}:
+            continue
+        if status not in {"draft", "approved", "example"}:
+            continue
+
+        stripped = strip_code(raw)
+
+        if status == "draft":
+            markers = re.findall(r"\[NEEDS CLARIFICATION\b[^\]]*\]", stripped, flags=re.I)
+            require(
+                len(markers) <= 3,
+                f"{rel_path}: status: draft allows at most 3 [NEEDS CLARIFICATION] markers (found {len(markers)})",
+            )
+            continue
+
+        if path.name in SPEC_PACK_FILES:
+            for field in APPROVAL_FIELDS:
+                val = fm.get(field, "").strip()
+                require(
+                    bool(val),
+                    f"{rel_path}: status: {status} requires non-empty frontmatter '{field}'",
+                )
+                if status == "approved":
+                    require(
+                        val.lower() not in FORBIDDEN_APPROVED_PLACEHOLDERS,
+                        f"{rel_path}: status: approved forbids placeholder value '{val}' in '{field}'",
+                    )
+            if status == "approved":
+                warnings.extend(_check_approved_source_revision(root, path, raw, fm, strict=strict))
+
+        require(
+            not re.search(r"\[NEEDS CLARIFICATION\b", stripped, flags=re.I),
+            f"{rel_path}: status: {status} forbids unresolved [NEEDS CLARIFICATION] markers",
+        )
+        for section_name in READINESS_SECTIONS:
+            for section_body in _iter_h2_sections(stripped, section_name):
+                require(
+                    not re.search(r"(?m)^[ \t]*-\s*\[ \]", section_body),
+                    f"{rel_path}: status: {status} forbids unchecked '- [ ]' items in '## {section_name}'",
+                )
+
+    return warnings
+
 
 def validate_feature_folder(
     root: Path,
     feature_dir: Path,
     require_tasks: bool = False,
+    strict: bool = False,
 ) -> list[str]:
     warnings: list[str] = []
+    effective_strict = strict or require_tasks
+    rel_feature = feature_dir.relative_to(root)
+
+    p_mini = feature_dir / MINI_SPEC_FILE
     p1 = feature_dir / "1. Product Spec.md"
     p2 = feature_dir / "2. Tech Spec.md"
     p3 = feature_dir / "3. QA Spec.md"
     p4 = feature_dir / "4. Tasks.md"
+
+    for candidate in (p_mini, p1, p2, p3, p4):
+        require(not candidate.is_symlink(), f"{candidate.relative_to(root)}: spec file must not be a symlink")
+
+    if p_mini.is_file():
+        mixed_4 = [p.name for p in (p1, p2, p3, p4) if p.exists()]
+        require(
+            not mixed_4,
+            f"{rel_feature}: cannot mix '{MINI_SPEC_FILE}' with 4-file spec pack ({', '.join(mixed_4)})",
+        )
+        raw_mini = read_markdown(p_mini)
+        fm_mini = parse_frontmatter(raw_mini)
+        st_mini = fm_mini.get("status", "").strip().lower()
+        require(
+            st_mini in VALID_SPEC_STATUSES,
+            f"{p_mini.relative_to(root)}: invalid or missing frontmatter status '{st_mini or 'missing'}' "
+            f"(expected one of: {', '.join(sorted(VALID_SPEC_STATUSES))})",
+        )
+        warnings.extend(validate_clarify_gate(root, [p_mini], strict=effective_strict))
+        if st_mini in {"superseded", "archived"}:
+            return warnings
+
+        is_ready_mini = st_mini in {"approved", "example"}
+        require_mini_tables = is_ready_mini or require_tasks
+
+        ac_rows = _extract_section_table_rows(
+            p_mini.relative_to(root),
+            raw_mini,
+            "Acceptance criteria",
+            ("id", "scenario", "expected result"),
+            require_table=require_mini_tables,
+        )
+        mini_acs = _extract_acs_from_rows(ac_rows, "id")
+        if require_mini_tables:
+            require(
+                len(mini_acs) >= 1,
+                f"{p_mini.relative_to(root)}: '## Acceptance criteria' must declare at least one AC-xx",
+            )
+
+        parsed_mini_tasks = parse_execution_tasks(
+            p_mini.relative_to(root),
+            raw_mini,
+            require_table=require_mini_tables,
+        )
+        task_acs = {
+            ac
+            for task in (parsed_mini_tasks or [])
+            for ac in task["related_ac"]  # type: ignore[attr-defined]
+        }
+        if ac_rows is not None:
+            ghost_mini = sorted(task_acs - mini_acs)
+            require(
+                not ghost_mini,
+                f"{p_mini.relative_to(root)}: undeclared AC reference(s) not in '## Acceptance criteria': "
+                f"{', '.join(ghost_mini)}",
+            )
+        if require_mini_tables:
+            missing_mini = sorted(mini_acs - task_acs)
+            require(
+                not missing_mini,
+                f"{p_mini.relative_to(root)}: '## Execution tasks' is missing AC coverage for: "
+                f"{', '.join(missing_mini)}",
+            )
+        return warnings
+
     present = [p for p in (p1, p2, p3, p4) if p.is_file()]
     if not present:
         return warnings
 
     raw_texts: dict[Path, str] = {}
+    frontmatters: dict[Path, dict[str, str]] = {}
     statuses: dict[Path, str] = {}
     for spec_path in present:
-        raw = read(spec_path)
+        raw = read_markdown(spec_path)
+        fm = parse_frontmatter(raw)
+        st = fm.get("status", "").strip().lower()
+        require(
+            st in VALID_SPEC_STATUSES,
+            f"{spec_path.relative_to(root)}: invalid or missing frontmatter status '{st or 'missing'}' "
+            f"(expected one of: {', '.join(sorted(VALID_SPEC_STATUSES))})",
+        )
         raw_texts[spec_path] = raw
-        statuses[spec_path] = parse_frontmatter(raw).get("status", "").strip().lower()
+        frontmatters[spec_path] = fm
+        statuses[spec_path] = st
+
+    inactive_statuses = {st for st in statuses.values() if st in {"superseded", "archived"}}
+    if inactive_statuses:
+        unique_all = set(statuses.values())
+        require(
+            len(unique_all) == 1,
+            f"{rel_feature}: mixed feature pack status across specs ({', '.join(f'{p.name}={s}' for p, s in statuses.items())})",
+        )
+        return warnings
 
     ready_statuses = {st for st in statuses.values() if st in {"approved", "example"}}
     is_ready_pack = bool(ready_statuses)
     target_status = ""
-    rel_feature = feature_dir.relative_to(root)
 
     if is_ready_pack:
         target_status = "approved" if "approved" in ready_statuses else "example"
@@ -471,6 +1038,16 @@ def validate_feature_folder(
                 f"{rel_feature}: mixed feature pack status "
                 f"({spec_path.name} has status '{statuses[spec_path] or 'missing'}', expected '{target_status}')",
             )
+            if target_status == "approved":
+                warnings.extend(
+                    _check_approved_source_revision(
+                        root,
+                        spec_path,
+                        raw_texts[spec_path],
+                        frontmatters[spec_path],
+                        strict=effective_strict,
+                    )
+                )
         if not p4.is_file():
             if require_tasks:
                 raise ValueError(
@@ -488,7 +1065,7 @@ def validate_feature_folder(
             raw_texts[p1],
             "Acceptance criteria",
             ("id",),
-            require_table=is_ready_pack,
+            require_table=is_ready_pack or require_tasks,
         )
         product_acs = _extract_acs_from_rows(p1_rows, "id")
 
@@ -536,30 +1113,35 @@ def validate_feature_folder(
         )
 
     task_acs: set[str] = set()
-    task_rows: list[dict[str, str]] | None = None
     if p4.is_file():
         require_task_table = is_ready_pack or require_tasks
-        task_rows = _extract_section_table_rows(
+        parsed_tasks = parse_execution_tasks(
             p4.relative_to(root),
             raw_texts[p4],
-            "Execution tasks",
-            TASK_COLUMNS,
             require_table=require_task_table,
         )
-        if require_task_table:
-            require(
-                bool(task_rows),
-                f"{p4.relative_to(root)}: '## Execution tasks' must define at least one task row",
-            )
-        task_acs = _extract_acs_from_rows(task_rows, "related ac")
+        task_acs = {
+            ac
+            for task in (parsed_tasks or [])
+            for ac in task["related_ac"]  # type: ignore[attr-defined]
+        }
         ghost_tasks = sorted(task_acs - product_acs)
         require(
             not ghost_tasks,
             f"{p4.relative_to(root)}: undeclared Product AC reference(s) not in 1. Product Spec.md: "
             f"{', '.join(ghost_tasks)}",
         )
-        if task_rows:
-            _validate_tasks_rows(p4.relative_to(root), task_rows)
+        if require_task_table and p1.is_file():
+            require(
+                len(product_acs) >= 1,
+                f"{p1.relative_to(root)}: Product Spec must declare at least one AC-xx in '## Acceptance criteria'",
+            )
+            missing_tasks = sorted(product_acs - task_acs)
+            require(
+                not missing_tasks,
+                f"{p4.relative_to(root)}: Tasks Spec '## Execution tasks' is missing Product AC(s): "
+                f"{', '.join(missing_tasks)}",
+            )
 
     if is_ready_pack:
         require(
@@ -584,13 +1166,6 @@ def validate_feature_folder(
             f"{p3.relative_to(root)}: {target_status} QA Spec '## Traceability and test ownership' is missing Product AC(s): "
             f"{', '.join(missing_qa_trace)}",
         )
-        if p4.is_file():
-            missing_tasks = sorted(product_acs - task_acs)
-            require(
-                not missing_tasks,
-                f"{p4.relative_to(root)}: {target_status} Tasks Spec '## Execution tasks' is missing Product AC(s): "
-                f"{', '.join(missing_tasks)}",
-            )
 
     return warnings
 
@@ -599,11 +1174,35 @@ def validate_feature_specs(
     root: Path,
     features_root: Path,
     require_tasks: bool = False,
+    strict: bool = False,
 ) -> list[str]:
     if not features_root.is_dir():
         return []
     warnings: list[str] = []
-    for child in sorted(features_root.iterdir()):
-        if child.is_dir() and not child.name.startswith("."):
-            warnings.extend(validate_feature_folder(root, child, require_tasks=require_tasks))
+    seen_prefixes: dict[str, str] = {}
+    for child in sorted(features_root.iterdir(), key=lambda p: p.name):
+        if child.name.startswith("."):
+            continue
+        require(
+            not child.is_symlink(),
+            f"{child.relative_to(root)}: feature directory must not be a symlink",
+        )
+        if child.is_dir():
+            prefix_match = SEQ_PREFIX_RE.match(child.name)
+            if prefix_match:
+                prefix = prefix_match.group(1)
+                if prefix in seen_prefixes:
+                    raise ValueError(
+                        f"{features_root.relative_to(root)}: duplicate numeric feature prefix '{prefix}-' "
+                        f"shared by '{seen_prefixes[prefix]}' and '{child.name}'"
+                    )
+                seen_prefixes[prefix] = child.name
+            warnings.extend(
+                validate_feature_folder(
+                    root,
+                    child,
+                    require_tasks=require_tasks,
+                    strict=strict,
+                )
+            )
     return warnings

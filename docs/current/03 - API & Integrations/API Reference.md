@@ -4,7 +4,7 @@ owner: engineering
 ---
 # API Reference
 
-Ghi lại API public/internal, authentication, contracts, error format và third-party integrations.
+Ghi lại danh mục API công khai và nội bộ, cơ chế xác thực/phân quyền, nguồn định nghĩa hợp đồng dữ liệu, cấu trúc lỗi chuẩn và các tích hợp bên thứ ba.
 
 ## Contract index
 
@@ -14,6 +14,6 @@ Ghi lại API public/internal, authentication, contracts, error format và third
 
 ## Error and compatibility policy
 
-- Standard error format:
-- Breaking-change and deprecation policy:
-- Idempotency, rate limit, retry expectations:
+- Định dạng phản hồi lỗi chuẩn và quy ước mã trạng thái:
+- Chính sách thay đổi phá vỡ tương thích (breaking changes) và lộ trình ngừng hỗ trợ (deprecation):
+- Quy định về khoá chống trùng lặp (idempotency), giới hạn tần suất (rate limit) và cơ chế thử lại (retry):

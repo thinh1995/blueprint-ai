@@ -9,16 +9,19 @@ from pathlib import Path
 # because CI or a developer ran a documentation check.
 sys.dont_write_bytecode = True
 
-from docs_validation import (
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from docs_validation import (  # noqa: E402
+    require,
     validate_clarify_gate,
     validate_feature_specs,
     validate_links,
     validate_mermaid,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
-DOCS = ROOT / "docs"
-CURRENT = DOCS / "current"
+DEFAULT_ROOT = SCRIPT_DIR.parent
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -26,29 +29,49 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Validate downstream project documentation links, Mermaid diagrams, Clarify Gate, and Cross-Spec traceability."
     )
     parser.add_argument(
+        "--root",
+        type=Path,
+        default=DEFAULT_ROOT,
+        help="Project root containing docs/current (defaults to parent directory of tools/).",
+    )
+    parser.add_argument(
         "--require-tasks",
         action="store_true",
-        help="Require 4. Tasks.md on every approved feature folder.",
+        help="Require 4. Tasks.md (or 1. Mini Spec.md) and 40-hex source_revision on every approved feature folder.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Enforce strict 40-character lowercase Git SHA source_revision on approved specs.",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    if not CURRENT.is_dir():
+    require(not args.root.is_symlink(), f"project root cannot be a symlink: {args.root}")
+    root = args.root.resolve()
+    docs = root / "docs"
+    current = docs / "current"
+    if not current.is_dir():
         raise ValueError("docs/current is missing")
-    files = sorted(CURRENT.rglob("*.md"))
+    files = sorted(current.rglob("*.md"))
+    for p in files:
+        require(not p.is_symlink(), f"{p.relative_to(root)}: Markdown document must not be a symlink")
     if not files:
         raise ValueError("docs/current has no Markdown documents")
-    validate_links(ROOT, DOCS, files)
-    validate_mermaid(ROOT, files)
-    validate_clarify_gate(ROOT, files)
-    warnings = validate_feature_specs(
-        ROOT,
-        CURRENT / "05 - Product Features",
+
+    strict = args.strict or args.require_tasks
+    validate_links(root, docs, files)
+    validate_mermaid(root, files)
+    clarify_warnings = validate_clarify_gate(root, files, strict=strict)
+    spec_warnings = validate_feature_specs(
+        root,
+        current / "05 - Product Features",
         require_tasks=args.require_tasks,
+        strict=strict,
     )
-    for warning in warnings:
+    for warning in dict.fromkeys(clarify_warnings + spec_warnings):
         print(f"WARN: {warning}", file=sys.stderr)
     print("PASS: downstream documentation links and Mermaid structure")
 

@@ -2,6 +2,7 @@
 """Deterministic contract validator for canonical SDD slash skills."""
 
 import argparse
+import json
 import re
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from docs_validation import require, strip_code  # noqa: E402
 
 ROOT = TESTS_DIR.parent
 MAX_SKILL_BYTES = 4096
+MAX_DESCRIPTION_CHARS = 1024
 
 EXPECTED_SKILLS = (
     "sdd-docs",
@@ -27,9 +29,12 @@ EXPECTED_SKILLS = (
     "sdd-tasks",
     "sdd-analyze",
     "sdd-implement",
+    "sdd-fix",
 )
 EXPECTED_SKILL_SET = frozenset(EXPECTED_SKILLS)
-ALLOWED_FRONTMATTER_KEYS = frozenset({"name", "description"})
+REQUIRED_FRONTMATTER_KEYS = frozenset({"name", "description", "disable-model-invocation"})
+OPTIONAL_FRONTMATTER_KEYS = frozenset({"argument-hint"})
+ALLOWED_FRONTMATTER_KEYS = REQUIRED_FRONTMATTER_KEYS | OPTIONAL_FRONTMATTER_KEYS
 
 DOCS_PROMPT_PATH = "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md"
 STAGE_PROMPTS_PATH = "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md"
@@ -42,6 +47,7 @@ STAGE_SKILL_REQUIREMENTS: dict[str, tuple[str, str]] = {
     "sdd-tasks": ("## 4. Tasks", "05 - Product Features"),
     "sdd-analyze": ("## 5. Analyze", "tools/validate-docs.py --require-tasks"),
     "sdd-implement": ("## 6. Implement", "task-evidence"),
+    "sdd-fix": ("## 7. Fix", "task-evidence"),
 }
 
 FRONTMATTER_RE = re.compile(r"^---[ \t]*\n(.*?)\n---[ \t]*\n(.+)$", re.DOTALL)
@@ -49,6 +55,28 @@ FRONTMATTER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 BLOCK_SCALAR_RE = re.compile(r"^[|>](?:[+-]|\d+[+-]?|[+-]\d+)?(?:[ \t]+#.*)?$")
 CLARIFY_MARKER_RE = re.compile(r"\[NEEDS CLARIFICATION\b", re.IGNORECASE)
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\([^)]+\)")
+
+
+def _parse_json_double_quoted_scalar(rel_path: str, line_no: int, key: str, raw_val: str) -> str:
+    require(
+        len(raw_val) >= 2 and raw_val.startswith('"') and raw_val.endswith('"'),
+        f"{rel_path}:{line_no}: frontmatter key {key!r} must be a JSON-valid double-quoted string",
+    )
+    try:
+        parsed = json.loads(raw_val)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"{rel_path}:{line_no}: invalid double-quoted YAML/JSON scalar for {key!r} ({exc})"
+        ) from exc
+    require(
+        isinstance(parsed, str) and bool(parsed.strip()),
+        f"{rel_path}:{line_no}: frontmatter key {key!r} must decode to a non-empty string",
+    )
+    require(
+        not any(ord(ch) < 32 for ch in parsed),
+        f"{rel_path}:{line_no}: control characters are forbidden in frontmatter key {key!r}",
+    )
+    return parsed
 
 
 def _parse_strict_frontmatter(rel_path: str, text: str) -> tuple[dict[str, str], str]:
@@ -89,21 +117,31 @@ def _parse_strict_frontmatter(rel_path: str, text: str) -> tuple[dict[str, str],
             bool(val) and not BLOCK_SCALAR_RE.fullmatch(val),
             f"{rel_path}:{line_no}: empty or multi-line block scalar value for {key!r} is forbidden",
         )
-        if val[0] in {'"', "'"}:
+
+        if key in {"description", "argument-hint"}:
+            frontmatter[key] = _parse_json_double_quoted_scalar(rel_path, line_no, key, val)
+        elif key == "disable-model-invocation":
             require(
-                len(val) >= 2 and val[-1] == val[0],
-                f"{rel_path}:{line_no}: unclosed quoted frontmatter value for {key!r}",
+                val == "true",
+                f"{rel_path}:{line_no}: disable-model-invocation must be exact unquoted boolean 'true' (got {val!r})",
             )
-            val = val[1:-1]
-        frontmatter[key] = val
+            frontmatter[key] = val
+        elif key == "name":
+            require(
+                val[0] not in {'"', "'"} and not any(ch.isspace() for ch in val),
+                f"{rel_path}:{line_no}: frontmatter 'name' must be an unquoted skill slug",
+            )
+            frontmatter[key] = val
+        else:
+            frontmatter[key] = val
 
     extra_keys = sorted(set(frontmatter) - ALLOWED_FRONTMATTER_KEYS)
     require(
         not extra_keys,
         f"{rel_path}: forbidden frontmatter key(s): {', '.join(extra_keys)} "
-        "(exact required keys: description, name)",
+        "(allowed keys: argument-hint, description, disable-model-invocation, name)",
     )
-    missing_keys = sorted(ALLOWED_FRONTMATTER_KEYS - set(frontmatter))
+    missing_keys = sorted(REQUIRED_FRONTMATTER_KEYS - set(frontmatter))
     require(
         not missing_keys,
         f"{rel_path}: missing required frontmatter key(s): {', '.join(missing_keys)}",
@@ -151,8 +189,9 @@ def _validate_single_skill(skills_dir: Path, slug: str) -> None:
     )
     description = frontmatter["description"]
     require(
-        len(description) >= 20,
-        f"{rel}: frontmatter description must be at least 20 characters (got {len(description)})",
+        20 <= len(description) <= MAX_DESCRIPTION_CHARS,
+        f"{rel}: frontmatter description length must be between 20 and {MAX_DESCRIPTION_CHARS} chars "
+        f"(got {len(description)})",
     )
     desc_lower = description.lower()
     require(
@@ -270,7 +309,9 @@ def _render_synthetic_skill(slug: str) -> str:
     return (
         f"---\n"
         f"name: {slug}\n"
-        f"description: Run only on explicit /{slug} invocation; never auto-run on read-only questions.\n"
+        f'description: "Run only on explicit /{slug} invocation; never auto-run on read-only questions."\n'
+        f'argument-hint: "[feature-folder]"\n'
+        f"disable-model-invocation: true\n"
         f"---\n"
         f"# /{slug}\n\n"
         f"Invoke only on explicit `/{slug}` intent; keep read-only status questions untouched.\n"
@@ -310,16 +351,65 @@ def run_self_test() -> None:
         _write_synthetic_tree(root)
         validate_skills_contract(root)
 
+    # Unquoted argument-hint (breaks YAML 1.2 sequence parsing on [feature-folder])
     _expect_failure(
         lambda r: (r / "skills/sdd-docs/SKILL.md").write_text(
             _render_synthetic_skill("sdd-docs").replace(
-                "---\n#",
-                "argument-hint: \"[scope]\"\n---\n#",
+                'argument-hint: "[feature-folder]"',
+                "argument-hint: [feature-folder]",
                 1,
             ),
             encoding="utf-8",
         ),
-        "forbidden frontmatter key(s): argument-hint",
+        "must be a JSON-valid double-quoted string",
+    )
+    # Invalid JSON escape inside description
+    _expect_failure(
+        lambda r: (r / "skills/sdd-fix/SKILL.md").write_text(
+            _render_synthetic_skill("sdd-fix").replace(
+                "explicit /sdd-fix",
+                r"explicit \x20 /sdd-fix",
+                1,
+            ),
+            encoding="utf-8",
+        ),
+        "invalid double-quoted YAML/JSON scalar",
+    )
+    # Missing disable-model-invocation
+    _expect_failure(
+        lambda r: (r / "skills/sdd-docs/SKILL.md").write_text(
+            _render_synthetic_skill("sdd-docs").replace(
+                "disable-model-invocation: true\n",
+                "",
+                1,
+            ),
+            encoding="utf-8",
+        ),
+        "missing required frontmatter key(s): disable-model-invocation",
+    )
+    # disable-model-invocation: false or quoted "true"
+    _expect_failure(
+        lambda r: (r / "skills/sdd-docs/SKILL.md").write_text(
+            _render_synthetic_skill("sdd-docs").replace(
+                "disable-model-invocation: true",
+                "disable-model-invocation: false",
+                1,
+            ),
+            encoding="utf-8",
+        ),
+        "disable-model-invocation must be exact unquoted boolean 'true'",
+    )
+    # Forbidden allowed-tools frontmatter key
+    _expect_failure(
+        lambda r: (r / "skills/sdd-docs/SKILL.md").write_text(
+            _render_synthetic_skill("sdd-docs").replace(
+                "---\n#",
+                'allowed-tools: "Read"\n---\n#',
+                1,
+            ),
+            encoding="utf-8",
+        ),
+        "forbidden frontmatter key(s): allowed-tools",
     )
     _expect_failure(
         lambda r: (r / "skills/sdd-plan/SKILL.md").write_text(

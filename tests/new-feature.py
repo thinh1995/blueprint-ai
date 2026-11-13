@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scaffold a numbered 4-file feature specification pack under docs/current/05 - Product Features/."""
+"""Scaffold a 4-file feature pack or 1-file Mini-Spec under docs/current/05 - Product Features/."""
 
 import sys
 
@@ -22,6 +22,7 @@ APPROVAL_FIELD_RE = re.compile(
     re.M,
 )
 
+MINI_SPEC_NAME = "1. Mini Spec.md"
 CANONICAL_SPECS = (
     "1. Product Spec.md",
     "2. Tech Spec.md",
@@ -42,6 +43,10 @@ AI_ADDENDUM_ROWS = (
     "AI addendum: knowledge provenance, citation, retention",
     "AI addendum: human escalation and evaluation threshold",
 )
+
+BLAST_ANCHOR_RE = r"^(- Affected modules, routes, jobs, schemas, or integrations:)[ \t]*$"
+
+IGNORED_PRESET_ENTRIES = {".DS_Store", ".gitkeep"}
 
 
 def fail(message: str) -> NoReturn:
@@ -82,7 +87,7 @@ def resolve_preset_name(cli_preset: str | None) -> str:
         if not manifest_path.is_file():
             fail("template-manifest.json is not a regular file")
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as exc:
             fail(f"unable to parse template-manifest.json: {exc}")
         if not isinstance(manifest, dict):
@@ -114,7 +119,7 @@ def validate_custom_preset_dir(custom_dir: Path, preset_name: str) -> list[Path]
                 f"symlink refused inside custom preset '{preset_name}': "
                 f"docs/templates/presets/{preset_name}/{entry.name}"
             )
-        if entry.name == ".DS_Store":
+        if entry.name in IGNORED_PRESET_ENTRIES:
             continue
         if not entry.is_file() or entry.suffix != ".md":
             fail(
@@ -136,7 +141,7 @@ def list_presets() -> int:
         if not presets_root.is_dir():
             fail("docs/templates/presets exists and is not a directory")
         for entry in sorted(presets_root.iterdir(), key=lambda p: p.name):
-            if entry.name == ".DS_Store":
+            if entry.name in IGNORED_PRESET_ENTRIES:
                 continue
             if entry.is_symlink():
                 fail(f"symlink refused in docs/templates/presets: {entry.name}")
@@ -155,12 +160,25 @@ def list_presets() -> int:
     return 0
 
 
+def sub_once_required(pattern: str, repl: str, text: str, label: str) -> str:
+    updated, count = re.subn(pattern, repl, text, count=1, flags=re.M)
+    if count != 1:
+        raise ValueError(f"expected preset anchor {label!r} not found")
+    return updated
+
+
+def replace_once_required(text: str, target: str, replacement: str, label: str) -> str:
+    if target not in text:
+        raise ValueError(f"expected preset anchor {label!r} not found")
+    return text.replace(target, replacement, 1)
+
+
 def replace_table_row_by_first_cell(text: str, first_cell: str, col2: str, col3: str) -> str:
     pattern = re.compile(r"^\|\s*" + re.escape(first_cell) + r"\s*\|.*\|[ \t]*$", re.M)
     replacement = f"| {first_cell} | {col2} | {col3} |"
     updated, count = pattern.subn(lambda _m: replacement, text, count=1)
     if count == 0:
-        fail(f"expected template table row '{first_cell}' not found in 2. Tech Spec.md")
+        raise ValueError(f"expected template table row '{first_cell}' not found in 2. Tech Spec.md")
     return updated
 
 
@@ -177,13 +195,13 @@ def replace_qa_rows(
     cov_row = f"| QA-01 | AC-01 | {preconditions} | {steps} | {expected} | {automated} |"
     text, count = cov_pattern.subn(lambda _m: cov_row, text, count=1)
     if count == 0:
-        fail("expected QA-01/AC-01 coverage row not found in 3. QA Spec.md")
+        raise ValueError("expected QA-01/AC-01 coverage row not found in 3. QA Spec.md")
 
     trace_pattern = re.compile(r"^\|\s*AC-01\s*\|\s*QA-01\s*\|.*\|[ \t]*$", re.M)
     trace_row = f"| AC-01 | QA-01 | {test_cmd} | qa |"
     text, count = trace_pattern.subn(lambda _m: trace_row, text, count=1)
     if count == 0:
-        fail("expected AC-01/QA-01 traceability row not found in 3. QA Spec.md")
+        raise ValueError("expected AC-01/QA-01 traceability row not found in 3. QA Spec.md")
 
     if extra_edge_bullets:
         marker = "\n## Validation evidence"
@@ -198,10 +216,10 @@ def replace_qa_rows(
     return text
 
 
-def replace_execution_task_rows(text: str, rows: list[str]) -> str:
+def replace_execution_task_rows(text: str, rows: list[str], spec_label: str = "4. Tasks.md") -> str:
     section_match = re.search(r"^##[ \t]+Execution tasks[ \t]*$", text, re.M)
     if not section_match:
-        fail("expected '## Execution tasks' section not found in 4. Tasks.md")
+        raise ValueError(f"expected '## Execution tasks' section not found in {spec_label}")
 
     head = text[: section_match.end()]
     tail = text[section_match.end() :]
@@ -221,7 +239,7 @@ def replace_execution_task_rows(text: str, rows: list[str]) -> str:
                 break
 
     if header_idx is None or sep_idx is None:
-        fail("expected Markdown table under '## Execution tasks' in 4. Tasks.md")
+        raise ValueError(f"expected Markdown table under '## Execution tasks' in {spec_label}")
 
     end_idx = sep_idx + 1
     while end_idx < len(lines):
@@ -245,235 +263,233 @@ def apply_builtin_overlay(preset_name: str, docs: dict[str, str]) -> dict[str, s
     tasks = docs["4. Tasks.md"]
 
     if preset_name == "web-api":
-        tech = re.sub(
-            r"^(- Affected modules, routes, jobs, schemas, or integrations:)[ \t]*$",
-            r"\1 HTTP routes, request/response contracts, auth/tenant middleware, and persistence migrations.",
+        tech = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 HTTP routes, hợp đồng request/response, middleware phân quyền/tenant và migration dữ liệu.",
             tech,
-            count=1,
-            flags=re.M,
+            "2. Tech Spec.md blast-radius bullet",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "API / event contract and versioning",
-            "Specify HTTP method/route, request/response schema, status codes, idempotency key, and pagination.",
+            "Xác định HTTP method/route, schema request/response, mã trạng thái, idempotency key và phân trang.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Schema or data migration",
-            "Specify forward/backward-compatible migration steps, backfill safety, and rollback script.",
+            "Xác định bước migration tương thích xuôi/ngược, độ an toàn backfill và kịch bản rollback.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Observability (logs, metrics, alerts)",
-            "Specify structured request logs, latency/5xx metrics, and alert threshold.",
+            "Xác định structured log cho request, metric độ trễ/5xx và ngưỡng cảnh báo.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Deployment and rollback plan",
-            "Specify zero-downtime rollout sequence, feature flag guard, and rollback trigger.",
+            "Xác định trình tự triển khai không gián đoạn, feature flag bảo vệ và điều kiện rollback.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Dependencies / third-party failure mode",
-            "Specify upstream timeout, bounded retry budget, and degraded error response.",
+            "Xác định timeout dịch vụ phụ thuộc, giới hạn retry và phản hồi suy giảm an toàn.",
             "engineering",
         )
         for ai_row in AI_ADDENDUM_ROWS:
             tech = replace_table_row_by_first_cell(
-                tech, ai_row, "Not applicable (web-api preset).", "n/a"
+                tech, ai_row, "Không áp dụng (preset web-api).", "n/a"
             )
         tech = replace_table_row_by_first_cell(
             tech,
             "AC-01",
-            "Implement versioned HTTP route contract, auth/tenant boundary check, and persistence handler.",
+            "Hiện thực hóa HTTP route có phiên bản, kiểm tra ranh giới auth/tenant và tầng lưu trữ.",
             "`pytest tests/api/`",
         )
 
         qa = replace_qa_rows(
             qa,
-            preconditions="Authenticated caller and isolated tenant fixture.",
-            steps="Send valid request, malformed 4xx payload, cross-tenant/unauthorized call, burst rate-limit calls, and migration rollback check.",
-            expected="2xx response on valid call; deterministic 400/401/403/429 errors; zero cross-tenant leakage; clean rollback.",
+            preconditions="Caller đã xác thực và dữ liệu mẫu cô lập theo tenant.",
+            steps="Gửi request hợp lệ, payload lỗi 4xx, truy cập trái phép/chéo tenant, kiểm tra rate-limit và rollback migration.",
+            expected="Trả về 2xx cho luồng hợp lệ; lỗi 400/401/403/429 tất định; không rò rỉ dữ liệu chéo tenant; rollback sạch.",
             automated="yes",
             test_cmd="`pytest tests/api/`",
             extra_edge_bullets=[
-                "Web-API preset: verify 401/403 auth & cross-tenant boundary, 4xx schema validation, rate-limit (429) enforcement, and migration rollback.",
+                "Preset web-api: kiểm thử phân quyền 401/403 & cô lập chéo tenant, kiểm tra schema 4xx, giới hạn tần suất (429) và rollback migration.",
             ],
         )
 
         tasks = replace_execution_task_rows(
             tasks,
             [
-                "| T-01 | todo | no | - | AC-01 | `src/api/contracts/` | Define HTTP route contract, status codes, pagination, and schema migration plan. | `pytest tests/api/test_contracts.py` |",
-                "| T-02 | todo | no | T-01 | AC-01 | `src/api/handlers/` | Implement endpoint handler with auth/tenant enforcement, 4xx validation, and rate-limit hooks. | `pytest tests/api/test_handlers.py` |",
+                "| T-01 | todo | no | - | AC-01 | `src/api/contracts/` | Định nghĩa hợp đồng HTTP route, mã trạng thái, phân trang và kế hoạch migration. | `pytest tests/api/test_contracts.py` |",
+                "| T-02 | todo | no | T-01 | AC-01 | `src/api/handlers/` | Hiện thực hóa handler kèm kiểm tra auth/tenant, xác thực 4xx và rate-limit. | `pytest tests/api/test_handlers.py` |",
             ],
         )
 
     elif preset_name == "cli-tool":
-        tech = re.sub(
-            r"^(- Affected modules, routes, jobs, schemas, or integrations:)[ \t]*$",
-            r"\1 CLI entrypoint, argument parser, filesystem guards, and exit-code contract (web/tenancy not applicable).",
+        tech = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Điểm vào CLI, bộ phân tích tham số, chốt chặn filesystem/symlink và hợp đồng mã thoát (không áp dụng web/multi-tenancy).",
             tech,
-            count=1,
-            flags=re.M,
+            "2. Tech Spec.md blast-radius bullet",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "API / event contract and versioning",
-            "Specify CLI flags/args, exit codes (0 success, 1 runtime failure, 2 usage error), and stdin/stdout/stderr contract.",
+            "Xác định cờ/tham số CLI, mã thoát (0 thành công, 1 lỗi thực thi, 2 sai cú pháp) và luồng stdin/stdout/stderr.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Schema or data migration",
-            "Not applicable (cli-tool preset; document config/output format compatibility if persisted).",
+            "Không áp dụng (preset cli-tool; nêu tính tương thích định dạng file cấu hình/xuất nếu có lưu đĩa).",
             "n/a",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Observability (logs, metrics, alerts)",
-            "Specify deterministic stdout output and actionable stderr diagnostics (web telemetry not applicable).",
+            "Xác định kết xuất stdout tất định và thông báo chẩn đoán lỗi rõ ràng trên stderr.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Deployment and rollback plan",
-            "Specify --dry-run preview, atomic file writes (O_EXCL), symlink refusal, and safe cleanup on error.",
+            "Xác định chế độ xem trước --dry-run, ghi file nguyên tử (O_EXCL), từ chối symlink và dọn dẹp khi lỗi.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Dependencies / third-party failure mode",
-            "Offline-first stdlib execution; fail fast with explicit message when optional external CLI is absent.",
+            "Ưu tiên chạy độc lập bằng thư viện chuẩn; dừng sớm kèm thông báo rõ khi thiếu công cụ ngoài.",
             "engineering",
         )
         for ai_row in AI_ADDENDUM_ROWS:
             tech = replace_table_row_by_first_cell(
-                tech, ai_row, "Not applicable (cli-tool preset).", "n/a"
+                tech, ai_row, "Không áp dụng (preset cli-tool).", "n/a"
             )
         tech = replace_table_row_by_first_cell(
             tech,
             "AC-01",
-            "Implement CLI flag parser, stdin/stdout/stderr stream contract, atomic writes, and symlink/traversal guards.",
+            "Hiện thực hóa bộ phân tích cờ CLI, hợp đồng luồng xuất/lỗi, ghi file nguyên tử và chặn symlink/path traversal.",
             "`pytest tests/test_cli.py`",
         )
 
         qa = replace_qa_rows(
             qa,
-            preconditions="Isolated temporary directory with fixture files.",
-            steps="Run valid invocation, invalid flags, --dry-run mode, repeated idempotent run, and ../ or symlink traversal input.",
-            expected="Exit 0 on valid/--dry-run (no writes on --dry-run); deterministic non-zero exit on invalid flags or unsafe paths.",
+            preconditions="Thư mục tạm cô lập chứa dữ liệu kiểm thử.",
+            steps="Chạy lệnh hợp lệ, cờ sai cú pháp, chế độ --dry-run, chạy lặp idempotent và đường dẫn ../ hoặc symlink.",
+            expected="Thoát mã 0 khi hợp lệ/--dry-run (không ghi đĩa ở --dry-run); thoát mã khác 0 tất định khi cờ sai hoặc đường dẫn không an toàn.",
             automated="yes",
             test_cmd="`pytest tests/test_cli.py`",
             extra_edge_bullets=[
-                "CLI-tool preset: verify invalid flags, non-zero exit codes (1/2), --dry-run zero-mutation guarantee, idempotency, and symlink/path-traversal refusal (web multi-tenancy not applicable).",
+                "Preset cli-tool: kiểm thử cờ không hợp lệ, mã thoát khác 0 (1/2), cam kết không ghi đĩa với --dry-run, tính idempotent và từ chối symlink/path traversal.",
             ],
         )
 
         tasks = replace_execution_task_rows(
             tasks,
             [
-                "| T-01 | todo | no | - | AC-01 | `src/cli/parser.py` | Implement CLI argument parser, exit codes, --dry-run handling, and atomic/symlink filesystem guards. | `pytest tests/test_cli.py -k parser` |",
-                "| T-02 | todo | no | T-01 | AC-01 | `tests/test_cli.py` | Add CLI integration tests covering stdout/stderr contract, idempotency, and path-traversal refusal. | `pytest tests/test_cli.py` |",
+                "| T-01 | todo | no | - | AC-01 | `src/cli/parser.py` | Hiện thực hóa bộ phân tích tham số CLI, mã thoát, --dry-run và chốt chặn ghi file nguyên tử/symlink. | `pytest tests/test_cli.py -k parser` |",
+                "| T-02 | todo | no | T-01 | AC-01 | `tests/test_cli.py` | Bổ sung kiểm thử tích hợp cho hợp đồng stdout/stderr, tính idempotent và chặn path traversal. | `pytest tests/test_cli.py` |",
             ],
         )
 
     elif preset_name == "ai-agent":
-        tech = re.sub(
-            r"^(- Affected modules, routes, jobs, schemas, or integrations:)[ \t]*$",
-            r"\1 Agent orchestrator, prompt/policy config, retrieval grounding pipeline, tool allowlist, and evaluation harness.",
+        tech = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Bộ điều phối agent, cấu hình prompt/policy, luồng truy xuất có dẫn nguồn, danh sách cho phép tool và bộ đánh giá.",
             tech,
-            count=1,
-            flags=re.M,
+            "2. Tech Spec.md blast-radius bullet",
         )
-        tech = tech.replace(
+        tech = replace_once_required(
+            tech,
             "For every diagram, record:",
-            "AI-agent preset reminder: include Mermaid sequence, state/failure, and data-boundary diagrams with quoted special-character labels.\n\nFor every diagram, record:",
-            1,
+            "Lưu ý preset ai-agent: bổ sung sơ đồ Mermaid cho luồng tương tác (sequence), trạng thái/lỗi (state) và ranh giới dữ liệu với nhãn đặt trong dấu ngoặc kép.\n\nFor every diagram, record:",
+            "2. Tech Spec.md diagram anchor",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "API / event contract and versioning",
-            "Specify agent request/response envelope, grounded citation schema, and escalation status contract.",
+            "Xác định cấu trúc request/response của agent, schema trích dẫn nguồn và trạng thái chuyển giao con người.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Schema or data migration",
-            "Specify prompt/policy artifact versioning and evaluation fixture schema compatibility.",
+            "Xác định cách đánh phiên bản prompt/policy và tính tương thích bộ dữ liệu đánh giá (eval).",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Observability (logs, metrics, alerts)",
-            "Specify trace IDs, model/prompt version tags, tool timeout/error counters, and escalation-rate alerts.",
+            "Xác định trace ID, nhãn phiên bản model/prompt, bộ đếm lỗi/timeout của tool và cảnh báo tỷ lệ leo thang.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Deployment and rollback plan",
-            "Specify pinned prompt/model rollback procedure and safe kill-switch fallback to human handoff.",
+            "Xác định quy trình rollback phiên bản model/prompt đã ghim và công tắc ngắt an toàn sang con người.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "Dependencies / third-party failure mode",
-            "Specify model/retrieval timeout, bounded retry policy, and deterministic fallback when provider fails.",
+            "Xác định timeout cho model/truy xuất, trần retry và phản hồi dự phòng tất định khi nhà cung cấp lỗi.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "AI addendum: model / policy / prompt version",
-            "Pin exact model ID, system policy revision, and versioned prompt template identifier.",
+            "Ghim định danh model, bản sửa đổi system policy và mã phiên bản mẫu prompt.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "AI addendum: Tool permissions, timeout, retry, fallback",
-            "Define explicit read/write tool allowlist, per-tool timeout, retry cap, and safe fallback on failure.",
+            "Định nghĩa danh sách tool đọc/ghi được phép, timeout từng tool, trần retry và nhánh dự phòng an toàn.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "AI addendum: knowledge provenance, citation, retention",
-            "Restrict retrieval to approved tenant-scoped sources, enforce inline source citations, and set trace retention.",
+            "Giới hạn truy xuất theo nguồn đã duyệt của từng tenant, bắt buộc trích dẫn nguồn và thời hạn lưu trace.",
             "engineering",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "AI addendum: human escalation and evaluation threshold",
-            "Define confidence/safety escalation trigger, human handoff context payload, and release eval pass threshold.",
+            "Định nghĩa ngưỡng độ tin cậy/an toàn để chuyển con người, dữ liệu bàn giao và ngưỡng vượt bài eval.",
             "qa",
         )
         tech = replace_table_row_by_first_cell(
             tech,
             "AC-01",
-            "Implement grounded retrieval with source citations, strict tool allowlist/timeout policy, and human escalation gate.",
+            "Hiện thực hóa truy xuất có trích dẫn nguồn, chính sách allowlist/timeout cho tool và cổng chuyển giao con người.",
             "`pytest tests/agent_eval/`",
         )
 
         qa = replace_qa_rows(
             qa,
-            preconditions="Pinned prompt/policy config and curated evaluation corpus.",
-            steps="Run grounded query, missing-source query, prompt-injection payload, unauthorized tool invocation, and escalation case.",
-            expected="Grounded response cites approved sources; ungrounded, injected, or unauthorized tool cases refuse safely or escalate to human.",
+            preconditions="Cấu hình model/prompt đã ghim và bộ dữ liệu đánh giá chuẩn.",
+            steps="Chạy câu hỏi có nguồn, câu hỏi thiếu nguồn, payload prompt injection, lệnh gọi tool trái phép và ca leo thang.",
+            expected="Câu trả lời trích dẫn đúng nguồn được duyệt; ca thiếu nguồn, injection hoặc gọi tool trái phép bị từ chối an toàn hoặc chuyển con người.",
             automated="yes",
             test_cmd="`pytest tests/agent_eval/`",
             extra_edge_bullets=[
-                "AI-agent preset: verify hallucination/no-source refusal, untrusted-input prompt-injection resistance, unauthorized tool-call block, and human handoff payload.",
+                "Preset ai-agent: kiểm thử từ chối khi thiếu nguồn (chống bịa đặt), kháng prompt injection từ dữ liệu không tin cậy, chặn tool trái phép và bàn giao con người.",
             ],
         )
 
         tasks = replace_execution_task_rows(
             tasks,
             [
-                "| T-01 | todo | no | - | AC-01 | `src/agent/policy/` | Define pinned model/prompt version config, tool allowlist, timeout/fallback, and human escalation rules. | `pytest tests/agent_eval/test_policy.py` |",
-                "| T-02 | todo | yes | T-01 | AC-01 | `src/agent/retrieval/` | Implement tenant-scoped retrieval grounding and mandatory source-citation formatter. | `pytest tests/agent_eval/test_retrieval.py` |",
-                "| T-03 | todo | no | T-02 | AC-01 | `tests/agent_eval/` | Add evaluation suite covering no-source refusal, prompt injection, blocked tool calls, and human handoff. | `pytest tests/agent_eval/` |",
+                "| T-01 | todo | no | - | AC-01 | `src/agent/policy/` | Định nghĩa cấu hình ghim phiên bản model/prompt, allowlist tool, timeout/fallback và quy tắc leo thang. | `pytest tests/agent_eval/test_policy.py` |",
+                "| T-02 | todo | yes | T-01 | AC-01 | `src/agent/retrieval/` | Hiện thực hóa luồng truy xuất cô lập theo tenant và bộ định dạng trích dẫn nguồn bắt buộc. | `pytest tests/agent_eval/test_retrieval.py` |",
+                "| T-03 | todo | no | T-02 | AC-01 | `tests/agent_eval/` | Bổ sung bộ kiểm thử đánh giá từ chối khi thiếu nguồn, chống prompt injection, chặn tool trái phép và bàn giao con người. | `pytest tests/agent_eval/` |",
             ],
         )
 
@@ -481,6 +497,56 @@ def apply_builtin_overlay(preset_name: str, docs: dict[str, str]) -> dict[str, s
     docs["3. QA Spec.md"] = qa
     docs["4. Tasks.md"] = tasks
     return docs
+
+
+def apply_builtin_mini_overlay(preset_name: str, mini_text: str) -> str:
+    if preset_name == "general":
+        return mini_text
+
+    if preset_name == "web-api":
+        mini_text = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 HTTP route, hợp đồng request/response, kiểm tra quyền/tenant và tầng lưu trữ.",
+            mini_text,
+            "1. Mini Spec.md blast-radius bullet",
+        )
+        mini_text = replace_execution_task_rows(
+            mini_text,
+            [
+                "| T-01 | todo | no | - | AC-01 | `src/api/handlers/` | Hiện thực hóa endpoint kèm xác thực schema 4xx, ranh giới auth/tenant và kiểm thử tự động. | `pytest tests/api/` |",
+            ],
+            spec_label=MINI_SPEC_NAME,
+        )
+    elif preset_name == "cli-tool":
+        mini_text = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Bộ phân tích cờ CLI, hợp đồng mã thoát/stdout/stderr và chốt chặn filesystem/symlink.",
+            mini_text,
+            "1. Mini Spec.md blast-radius bullet",
+        )
+        mini_text = replace_execution_task_rows(
+            mini_text,
+            [
+                "| T-01 | todo | no | - | AC-01 | `src/cli/` | Hiện thực hóa tham số CLI, mã thoát tất định, --dry-run và kiểm thử chặn symlink/traversal. | `pytest tests/test_cli.py` |",
+            ],
+            spec_label=MINI_SPEC_NAME,
+        )
+    elif preset_name == "ai-agent":
+        mini_text = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Cấu hình prompt/policy đã ghim, allowlist/timeout cho tool, trích dẫn nguồn và cổng leo thang con người.",
+            mini_text,
+            "1. Mini Spec.md blast-radius bullet",
+        )
+        mini_text = replace_execution_task_rows(
+            mini_text,
+            [
+                "| T-01 | todo | no | - | AC-01 | `src/agent/` | Hiện thực hóa chính sách tool/prompt đã ghim, trích dẫn nguồn và bộ kiểm thử chống prompt injection. | `pytest tests/agent_eval/` |",
+            ],
+            spec_label=MINI_SPEC_NAME,
+        )
+
+    return mini_text
 
 
 def hydrate_spec_content(content: str, title: str) -> str:
@@ -510,14 +576,35 @@ def write_new_file_exclusive(path: Path, content: str) -> None:
         raise
 
 
+def _require_builtin_preset(preset_name: str) -> None:
+    if preset_name not in BUILTIN_PRESETS:
+        fail(
+            f"unknown preset '{preset_name}' "
+            f"(not in built-in presets {', '.join(BUILTIN_PRESETS)} and "
+            f"custom directory docs/templates/presets/{preset_name} does not exist)"
+        )
+
+
+def _readme_references_four_file_pack(readme_text: str) -> bool:
+    return any(
+        token in readme_text
+        for token in ("1. Product Spec", "2. Tech Spec", "3. QA Spec", "4. Tasks", "1.%20Product%20Spec")
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Scaffold a 4-file Spec-Driven Development feature pack."
+        description="Scaffold a 4-file Spec-Driven Development pack or a 1-file Mini-Spec (--mini)."
     )
     parser.add_argument(
         "slug",
         nargs="?",
         help="Lowercase kebab-case feature slug (e.g. user-auth).",
+    )
+    parser.add_argument(
+        "--mini",
+        action="store_true",
+        help="Scaffold a 1-file Tier M Mini-Spec ('1. Mini Spec.md') instead of the 4-file pack.",
     )
     parser.add_argument(
         "--title",
@@ -561,12 +648,22 @@ def main(argv: list[str] | None = None) -> int:
             "(expected lowercase kebab-case matching ^[a-z0-9]+(?:-[a-z0-9]+)*$)"
         )
 
+    slug_seq_match = SEQ_PREFIX_RE.match(slug)
+    if slug_seq_match and not args.plain:
+        stripped_slug = SEQ_PREFIX_RE.sub("", slug)
+        fail(
+            f"do not include a leading numeric prefix in '{slug}': "
+            f"pass '{stripped_slug}' without numeric prefix, or add --plain"
+        )
+
     if args.title is not None:
-        title = args.title.strip()
-        if not title or "\n" in title or "\r" in title:
+        raw_title = args.title.strip()
+        if not raw_title or "\n" in raw_title or "\r" in raw_title:
             fail("--title must be a non-empty single-line string")
+        title = raw_title.replace("|", r"\|")
     else:
-        title = " ".join(part.capitalize() for part in slug.split("-"))
+        clean_for_title = SEQ_PREFIX_RE.sub("", slug) if slug_seq_match else slug
+        title = " ".join(part.capitalize() for part in clean_for_title.split("-"))
 
     preset_name = resolve_preset_name(args.preset)
 
@@ -576,51 +673,81 @@ def main(argv: list[str] | None = None) -> int:
     if not features_root.is_dir():
         fail("docs/current/05 - Product Features is not a directory")
 
-    template_dir = ensure_no_symlinks(
-        ROOT, ("docs", "templates", "feature-spec-template"), must_exist=True
-    )
-    if not template_dir.is_dir():
-        fail("docs/templates/feature-spec-template is not a directory")
-
-    base_docs: dict[str, str] = {}
-    for spec_name in CANONICAL_SPECS:
-        spec_path = ensure_no_symlinks(
-            ROOT, ("docs", "templates", "feature-spec-template", spec_name), must_exist=True
-        )
-        if not spec_path.is_file():
-            fail(f"canonical spec template is not a regular file: {spec_path.relative_to(ROOT)}")
-        base_docs[spec_name] = spec_path.read_text(encoding="utf-8")
-
     presets_root = ensure_no_symlinks(ROOT, ("docs", "templates", "presets"), must_exist=False)
     if presets_root.exists() and not presets_root.is_dir():
         fail("docs/templates/presets exists and is not a directory")
     custom_dir = presets_root / preset_name
 
     ordered_files: list[tuple[str, str]] = []
-    if custom_dir.exists() or custom_dir.is_symlink():
-        custom_files = validate_custom_preset_dir(custom_dir, preset_name)
-        custom_map = {path.name: path.read_text(encoding="utf-8") for path in custom_files}
-        merged = dict(base_docs)
-        for spec_name in CANONICAL_SPECS:
-            if spec_name in custom_map:
-                merged[spec_name] = custom_map[spec_name]
-        if "README.md" in custom_map:
-            ordered_files.append(("README.md", hydrate_spec_content(custom_map["README.md"], title)))
-        for spec_name in CANONICAL_SPECS:
-            ordered_files.append((spec_name, hydrate_spec_content(merged[spec_name], title)))
-        for extra_name in sorted(custom_map):
-            if extra_name not in CANONICAL_SPECS and extra_name != "README.md":
-                ordered_files.append((extra_name, hydrate_spec_content(custom_map[extra_name], title)))
-    else:
-        if preset_name not in BUILTIN_PRESETS:
-            fail(
-                f"unknown preset '{preset_name}' "
-                f"(not in built-in presets {', '.join(BUILTIN_PRESETS)} and "
-                f"custom directory docs/templates/presets/{preset_name} does not exist)"
+    try:
+        if args.mini:
+            mini_template_path = ensure_no_symlinks(
+                ROOT, ("docs", "templates", "mini-spec-template", MINI_SPEC_NAME), must_exist=True
             )
-        overlaid = apply_builtin_overlay(preset_name, dict(base_docs))
-        for spec_name in CANONICAL_SPECS:
-            ordered_files.append((spec_name, hydrate_spec_content(overlaid[spec_name], title)))
+            if not mini_template_path.is_file():
+                fail(f"canonical Mini-Spec template is not a regular file: {mini_template_path.relative_to(ROOT)}")
+            base_mini = mini_template_path.read_text(encoding="utf-8-sig")
+
+            if custom_dir.exists() or custom_dir.is_symlink():
+                custom_files = validate_custom_preset_dir(custom_dir, preset_name)
+                custom_map = {path.name: path.read_text(encoding="utf-8-sig") for path in custom_files}
+                if MINI_SPEC_NAME in custom_map:
+                    mini_body = custom_map[MINI_SPEC_NAME]
+                elif preset_name in BUILTIN_PRESETS:
+                    mini_body = apply_builtin_mini_overlay(preset_name, base_mini)
+                else:
+                    mini_body = base_mini
+
+                if "README.md" in custom_map and (
+                    MINI_SPEC_NAME in custom_map
+                    or not _readme_references_four_file_pack(custom_map["README.md"])
+                ):
+                    ordered_files.append(("README.md", hydrate_spec_content(custom_map["README.md"], title)))
+                ordered_files.append((MINI_SPEC_NAME, hydrate_spec_content(mini_body, title)))
+            else:
+                _require_builtin_preset(preset_name)
+                overlaid_mini = apply_builtin_mini_overlay(preset_name, base_mini)
+                ordered_files.append((MINI_SPEC_NAME, hydrate_spec_content(overlaid_mini, title)))
+        else:
+            template_dir = ensure_no_symlinks(
+                ROOT, ("docs", "templates", "feature-spec-template"), must_exist=True
+            )
+            if not template_dir.is_dir():
+                fail("docs/templates/feature-spec-template is not a directory")
+
+            base_docs: dict[str, str] = {}
+            for spec_name in CANONICAL_SPECS:
+                spec_path = ensure_no_symlinks(
+                    ROOT, ("docs", "templates", "feature-spec-template", spec_name), must_exist=True
+                )
+                if not spec_path.is_file():
+                    fail(f"canonical spec template is not a regular file: {spec_path.relative_to(ROOT)}")
+                base_docs[spec_name] = spec_path.read_text(encoding="utf-8-sig")
+
+            if custom_dir.exists() or custom_dir.is_symlink():
+                custom_files = validate_custom_preset_dir(custom_dir, preset_name)
+                custom_map = {path.name: path.read_text(encoding="utf-8-sig") for path in custom_files}
+                merged = dict(base_docs)
+                for spec_name in CANONICAL_SPECS:
+                    if spec_name in custom_map:
+                        merged[spec_name] = custom_map[spec_name]
+                if "README.md" in custom_map:
+                    ordered_files.append(("README.md", hydrate_spec_content(custom_map["README.md"], title)))
+                for spec_name in CANONICAL_SPECS:
+                    ordered_files.append((spec_name, hydrate_spec_content(merged[spec_name], title)))
+                for extra_name in sorted(custom_map):
+                    if extra_name not in CANONICAL_SPECS and extra_name not in {"README.md", MINI_SPEC_NAME}:
+                        ordered_files.append((extra_name, hydrate_spec_content(custom_map[extra_name], title)))
+            else:
+                _require_builtin_preset(preset_name)
+                overlaid = apply_builtin_overlay(preset_name, dict(base_docs))
+                for spec_name in CANONICAL_SPECS:
+                    ordered_files.append((spec_name, hydrate_spec_content(overlaid[spec_name], title)))
+    except ValueError as exc:
+        fail(str(exc))
+
+    requested_seq_prefix = slug_seq_match.group(1) if slug_seq_match else None
+    requested_base_slug = SEQ_PREFIX_RE.sub("", slug) if slug_seq_match else slug
 
     max_seq = 0
     for entry in sorted(features_root.iterdir(), key=lambda p: p.name):
@@ -629,11 +756,16 @@ def main(argv: list[str] | None = None) -> int:
         if not entry.is_dir():
             continue
         base_slug = SEQ_PREFIX_RE.sub("", entry.name)
-        if entry.name == slug or base_slug == slug:
+        if entry.name == slug or base_slug == slug or base_slug == requested_base_slug:
             fail(f"duplicate feature slug '{slug}' (conflicts with existing '{entry.name}')")
         seq_match = SEQ_PREFIX_RE.match(entry.name)
         if seq_match:
-            max_seq = max(max_seq, int(seq_match.group(1)))
+            existing_prefix = seq_match.group(1)
+            if requested_seq_prefix is not None and existing_prefix == requested_seq_prefix:
+                fail(
+                    f"numeric prefix '{requested_seq_prefix}-' in '{slug}' collides with existing '{entry.name}'"
+                )
+            max_seq = max(max_seq, int(existing_prefix))
 
     if args.plain:
         folder_name = slug
@@ -655,8 +787,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     target_dir.mkdir(parents=False, exist_ok=False)
-    for filename, content in ordered_files:
-        write_new_file_exclusive(target_dir / filename, content)
+    try:
+        for filename, content in ordered_files:
+            write_new_file_exclusive(target_dir / filename, content)
+    except Exception:
+        for child in list(target_dir.iterdir()):
+            try:
+                child.unlink()
+            except OSError:
+                pass
+        try:
+            target_dir.rmdir()
+        except OSError:
+            pass
+        raise
 
     print(f"OK: scaffolded {rel_target_dir} (preset: {preset_name}, files: {len(ordered_files)})")
     return 0

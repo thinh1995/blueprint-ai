@@ -5,119 +5,12 @@
 TEMPLATE_PATHS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 validate_template_manifest() {
-    python3 - "$TEMPLATE_PATHS_DIR" <<'PY'
-import json
-import re
-import sys
-from pathlib import Path, PurePosixPath
-
-root = Path(sys.argv[1])
-manifest = json.loads((root / "template-manifest.json").read_text(encoding="utf-8"))
-if manifest.get("template") != "ai-agent-obsidian-project-template":
-    raise ValueError("manifest is not owned by ai-agent-obsidian-project-template")
-if not isinstance(manifest.get("version"), str) or not re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]):
-    raise ValueError("manifest version must be semantic version text")
-profiles = manifest.get("profiles")
-required = {"core", "--with-advanced-docs", "--with-legacy-agents"}
-if not isinstance(profiles, dict) or not required.issubset(profiles):
-    raise ValueError("manifest must define core, --with-advanced-docs, and --with-legacy-agents profiles")
-
-overrides = {
-    "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
-    "tools/docs_validation.py": "tests/docs_validation.py",
-    "tools/validate-docs.py": "tests/validate-project-docs.py",
-    "tools/new-feature.py": "tests/new-feature.py",
-    "tools/export-tasks.py": "tests/export-tasks.py",
-    ".agents/AGENTS.md": "AGENTS.md",
-}
-for prefix in (".claude", ".agents", ".qwen"):
-    for slug in (
-        "sdd-docs",
-        "sdd-specify",
-        "sdd-clarify",
-        "sdd-plan",
-        "sdd-tasks",
-        "sdd-analyze",
-        "sdd-implement",
-    ):
-        overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
-
-if "default_preset" in manifest and manifest["default_preset"] is not None:
-    preset = manifest["default_preset"]
-    if not isinstance(preset, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", preset):
-        raise ValueError("manifest default_preset must be a lowercase kebab-case slug")
-if "skills_enabled" in manifest and not isinstance(manifest["skills_enabled"], bool):
-    raise ValueError("manifest skills_enabled must be a boolean")
-
-def validate_path(value: object, profile: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{profile} contains an empty or non-string path")
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
-        raise ValueError(f"{profile} contains a control character")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise ValueError(f"{profile} contains an unsafe path: {value}")
-    return value
-
-all_paths: dict[str, str] = {}
-for name in required:
-    entries = profiles[name]
-    if not isinstance(entries, list):
-        raise ValueError(f"{name} must be a list")
-    for entry in entries:
-        entry = validate_path(entry, name)
-        if entry in all_paths:
-            raise ValueError(f"manifest profile path is duplicated: {entry}")
-        for existing, existing_profile in all_paths.items():
-            if entry.startswith(existing + "/") or existing.startswith(entry + "/"):
-                raise ValueError(f"manifest profile paths overlap: {existing_profile}:{existing} and {name}:{entry}")
-        all_paths[entry] = name
-        source = root / overrides.get(entry, entry)
-        if not source.exists() or source.is_symlink():
-            raise ValueError(f"manifest path is missing or unsafe in template: {entry}")
-
-managed_paths = manifest.get("managed_paths")
-if not isinstance(managed_paths, list):
-    raise ValueError("managed_paths must be a list")
-managed_set: set[str] = set()
-for entry in managed_paths:
-    entry = validate_path(entry, "managed_paths")
-    if entry in managed_set:
-        raise ValueError(f"managed_paths contains a duplicate: {entry}")
-    managed_set.add(entry)
-    source = root / overrides.get(entry, entry)
-    if not source.exists() or source.is_symlink():
-        raise ValueError(f"managed path is missing or unsafe in template: {entry}")
-
-managed_profiles = manifest.get("managed_profiles")
-if not isinstance(managed_profiles, list) or any(profile not in required for profile in managed_profiles):
-    raise ValueError("managed_profiles must contain only known profile names")
-
-def covers(entry: str, path: str) -> bool:
-    return path == entry or path.startswith(entry + "/")
-
-core = profiles["core"]
-advanced = profiles["--with-advanced-docs"]
-for source in (root / "docs").rglob("*"):
-    if not source.is_file() or source.name == ".DS_Store" or "internal" in source.relative_to(root / "docs").parts:
-        continue
-    relative = source.relative_to(root).as_posix()
-    if not any(covers(entry, relative) for entry in [*core, *advanced]):
-        raise ValueError(f"template documentation is not declared by a profile: {relative}")
-PY
+    python3 -B "$TEMPLATE_PATHS_DIR/tests/installer_lib.py" validate-source-manifest "$TEMPLATE_PATHS_DIR"
 }
 
 load_profile_paths() {
     local profile="$1"
-
-    python3 - "$TEMPLATE_PATHS_DIR/template-manifest.json" "$profile" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-profile = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["profiles"][sys.argv[2]]
-print("\n".join(profile))
-PY
+    python3 -B "$TEMPLATE_PATHS_DIR/tests/installer_lib.py" load-profile-paths "$TEMPLATE_PATHS_DIR/template-manifest.json" "$profile"
 }
 
 load_paths_into_array() {

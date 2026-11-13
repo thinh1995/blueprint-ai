@@ -15,6 +15,7 @@ require_text() {
 }
 
 for file in \
+    "docs/templates/mini-spec-template/1. Mini Spec.md" \
     "docs/templates/feature-spec-template/1. Product Spec.md" \
     "docs/templates/feature-spec-template/2. Tech Spec.md" \
     "docs/templates/feature-spec-template/3. QA Spec.md" \
@@ -31,6 +32,11 @@ require_text "AGENTS.md" "Never invent file/line references"
 require_text "AGENTS.md" "untrusted data"
 require_text "AGENTS.md" "Do not introduce speculative abstractions"
 require_text "AGENTS.md" "Make surgical changes"
+require_text "AGENTS.md" "3-Tier SDD Routing"
+require_text "AGENTS.md" "Spec Amendment"
+require_text "AGENTS.md" "Contract Language Rule"
+require_text "adapters/cursor-agents.mdc" "alwaysApply: true"
+require_text "adapters/copilot-instructions.md" "AGENTS.md"
 require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Simplicity first"
 require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Surgical changes"
 require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "verified: false"
@@ -38,7 +44,8 @@ require_text "docs/current/02 - Architecture/Generated Reference Inventory.md" "
 
 require_text "docs/current/01 - Overview/BA Foundation.md" "Stakeholders and RACI"
 require_text "docs/current/01 - Overview/BA Foundation.md" "Business rules catalogue"
-require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" "Mermaid is the official diagram format"
+require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" "diagram_format: mermaid"
+require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" "**Mermaid** là định dạng sơ đồ chuẩn duy nhất"
 require_text "docs/current/08 - Diagram Standards/Diagram Standards.md" '```mermaid'
 require_text "docs/templates/feature-spec-template/1. Product Spec.md" "Stakeholder, user stories, and use cases"
 require_text "docs/templates/feature-spec-template/1. Product Spec.md" "## Traceability"
@@ -57,6 +64,7 @@ require_text "docs/current/00 - Onboarding/3. AI Agent Workflow.md" "Spec-Driven
 require_text "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md" "tools/validate-docs.py --require-tasks"
 require_text "docs/internal/acceptance-matrices/V5_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.0`'
 require_text "docs/internal/acceptance-matrices/V5_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.1`'
+require_text "docs/internal/acceptance-matrices/V6_ACCEPTANCE_MATRIX.md" 'Release target: `0.6.0`'
 require_text "docs/templates/examples/ai-support-agent/1. Product Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "sequenceDiagram"
@@ -65,8 +73,13 @@ require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update
 require_text "docs/internal/acceptance-matrices/V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "tools/validate-docs.py"
 require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
-require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+require_text ".github/workflows/ai-template-validation.yml" "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
 require_text ".github/workflows/ai-template-validation.yml" "node-version: 22.14.0"
+require_text ".github/workflows/ai-template-validation.yml" "workflow_dispatch:"
+require_text ".github/workflows/ai-template-validation.yml" "concurrency:"
+require_text ".github/workflows/ai-template-validation.yml" "bash setup.sh --doctor"
+require_text ".github/workflows/ai-template-validation.yml" "tools/validate-task-evidence.py"
 require_text "README.md" "--dry-run --update"
 require_text "docs/current/00 - Onboarding/1. Setup Guide.md" "RECOVERY.md"
 python3 -B "$ROOT_DIR/tests/validate-template-docs.py"
@@ -76,21 +89,26 @@ python3 -B "$ROOT_DIR/tests/validate-orchestration-contract.py"
 python3 -B "$ROOT_DIR/tests/validate-runtime-delegation-fixture.py"
 python3 -B "$ROOT_DIR/tests/validate-antigravity-conformance-fixture.py"
 
-python3 -B - "$ROOT_DIR/tests" <<'PY'
+python3 -B - "$ROOT_DIR/tools" "$ROOT_DIR" <<'PY'
+import hashlib
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-tests_dir = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(tests_dir))
+tools_src_dir = Path(sys.argv[1]).resolve()
+repo_root = Path(sys.argv[2]).resolve()
+sys.path.insert(0, str(tools_src_dir))
 
 from docs_validation import (
     validate_clarify_gate,
     validate_feature_folder,
     validate_feature_specs,
     validate_links,
+    validate_mermaid,
 )
 
 
@@ -195,6 +213,30 @@ def write_valid_pack(
         )
 
 
+def write_mini_spec(feat: Path, fm: str = APPROVED_FM, rows: str | None = None) -> None:
+    feat.mkdir(parents=True, exist_ok=True)
+    exec_rows = rows or (
+        "| T-01 | todo | no | - | - | `src/config.py` | Prep config | `pytest tests/test_cfg.py` |\n"
+        "| T-02 | todo | yes | T-01 | AC-01 | `src/login.py` | Login endpoint | `pytest tests/test_login.py` |\n"
+        "| T-03 | todo | yes | T-01 | AC-02 | `src/guard.py` | Reject bad token | `pytest tests/test_guard.py` |\n"
+    )
+    (feat / "1. Mini Spec.md").write_text(
+        fm
+        + "# Mini Spec — Quick Auth\n\n"
+        + "## Acceptance criteria\n\n"
+        + "| ID | Scenario | Expected result |\n|---|---|---|\n"
+        + "| AC-01 | Valid login | 200 OK |\n"
+        + "| AC-02 | Invalid token | 401 Unauthorized |\n\n"
+        + "## Pre-implementation readiness checklist\n\n"
+        + "- [x] AGENTS.md Constitution check passed.\n\n"
+        + "## Execution tasks\n\n"
+        + "| Task ID | Status | [P] | Depends on | Related AC | Owned paths | Summary | Verification |\n"
+        + "|---|---|---|---|---|---|---|---|\n"
+        + exec_rows,
+        encoding="utf-8",
+    )
+
+
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp).resolve()
     docs = root / "docs"
@@ -202,21 +244,42 @@ with tempfile.TemporaryDirectory() as tmp:
     features = current / "05 - Product Features"
     features.mkdir(parents=True)
 
-    # 1. Code-stripped link validation vs real broken link
+    # 1. Code-stripped link validation, pre-unquote URI checks, %20 links, and Obsidian embeds
+    (current / "Target Note.md").write_text("# Target\n", encoding="utf-8")
+    (current / "diagram.png").write_bytes(b"\x89PNG\r\n")
     note = current / "prompts.md"
     note.write_text(
         "---\nstatus: active\nowner: eng\n---\n"
         "Inline `[[1. Product Spec]]` and ``[missing](nope.md)`` are code.\n\n"
+        "Valid [spaced](./Target%20Note.md) and ![[diagram.png|600]].\n\n"
         "```markdown\n[[Unresolved Wiki]] and [broken](missing-file.md)\n```\n",
         encoding="utf-8",
     )
     validate_links(root, docs, [note])
+
     broken = current / "broken.md"
     broken.write_text("Real broken [link](does-not-exist.md)\n", encoding="utf-8")
     expect_fail(lambda: validate_links(root, docs, [note, broken]), "broken link outside code", "missing Markdown link")
+
+    for bad_uri in ("file%3A///etc/passwd", "javascript:alert(1)"):
+        broken.write_text(f"Blocked [uri]({bad_uri})\n", encoding="utf-8")
+        expect_fail(lambda: validate_links(root, docs, [broken]), f"bad uri {bad_uri}", "unsupported Markdown URI scheme")
+
+    broken.write_text("Traversal embed ![[../../etc/passwd]]\n", encoding="utf-8")
+    expect_fail(lambda: validate_links(root, docs, [broken]), "embed traversal")
     broken.unlink()
 
-    # 2. Draft <=3 clarify tags pass; >3 fail
+    # Mermaid %%{init:...}%% directive and 4-backtick outer fence support
+    mermaid_note = current / "mermaid-test.md"
+    mermaid_note.write_text(
+        "```mermaid\n%%{init: {'theme': 'neutral'}}%%\nflowchart LR\n  A[\"Start\"] --> B[\"End\"]\n```\n\n"
+        "````markdown\nNested example:\n```mermaid\nnot-a-diagram-inside-outer-fence\n```\n````\n",
+        encoding="utf-8",
+    )
+    validate_mermaid(root, [mermaid_note])
+    mermaid_note.unlink()
+
+    # 2. Draft <=3 clarify tags pass; >3 fail; fail-closed status enum vs superseded/archived
     draft_note = current / "draft-spec.md"
     draft_note.write_text(
         DRAFT_FM
@@ -230,9 +293,15 @@ with tempfile.TemporaryDirectory() as tmp:
         encoding="utf-8",
     )
     expect_fail(lambda: validate_clarify_gate(root, [draft_note]), ">3 clarify tags in draft", "3")
+
+    for valid_lifecycle in ("superseded", "archived"):
+        draft_note.write_text(f"---\nstatus: {valid_lifecycle}\nowner: eng\n---\n# Old\n", encoding="utf-8")
+        validate_clarify_gate(root, [draft_note])
+    draft_note.write_text("---\nstatus: approve\nowner: eng\n---\n# Typo\n", encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [draft_note]), "status typo approve", "status")
     draft_note.unlink()
 
-    # 3. Domain note with status: approved and no approved_by passes; numbered spec fails on clarify/checkbox/placeholder
+    # 3. Standard 4-file & 1-file Mini-Spec packs
     overview = current / "Overview.md"
     overview.write_text("---\nstatus: approved\nowner: architecture\n---\n# Overview\n", encoding="utf-8")
     validate_clarify_gate(root, [overview])
@@ -240,11 +309,42 @@ with tempfile.TemporaryDirectory() as tmp:
     feat_ok = features / "001-auth"
     write_valid_pack(feat_ok, fm=APPROVED_FM, five_col_qa=False, with_tasks=True)
     write_valid_pack(features / "002-five-col", fm=APPROVED_FM, five_col_qa=True, with_tasks=True)
+    mini_ok = features / "005-mini-auth"
+    write_mini_spec(mini_ok, fm=APPROVED_FM)
+    mini_draft = features / "006-mini-draft"
+    write_mini_spec(mini_draft, fm=DRAFT_FM)
+
     all_files = sorted(current.rglob("*.md"))
     validate_clarify_gate(root, all_files)
     assert validate_feature_specs(root, features, require_tasks=True) == []
 
-    # Clarify marker in approved spec fails
+    # Duplicate NNN- prefix rejection
+    dup_feat = features / "001-duplicate"
+    write_mini_spec(dup_feat, fm=DRAFT_FM)
+    expect_fail(lambda: validate_feature_specs(root, features), "duplicate 001- prefix", "001")
+    shutil.rmtree(dup_feat)
+
+    # Mini-Spec negative cases: missing AC-02, 0% aggregate coverage with '-', and mixed 1. Mini Spec.md + 1. Product Spec.md
+    bad_mini = features / "007-bad-mini"
+    write_mini_spec(
+        bad_mini,
+        fm=APPROVED_FM,
+        rows="| T-01 | todo | no | - | AC-01 | `src/a.py` | Only AC-01 | `pytest` |\n",
+    )
+    expect_fail(lambda: validate_feature_folder(root, bad_mini), "mini-spec missing AC-02", "AC-02")
+
+    write_mini_spec(
+        bad_mini,
+        fm=APPROVED_FM,
+        rows="| T-01 | todo | no | - | - | `src/a.py` | Chore only, 0% AC | `pytest` |\n",
+    )
+    expect_fail(lambda: validate_feature_folder(root, bad_mini), "mini-spec 0% AC with '-'", "AC-01")
+
+    write_valid_pack(bad_mini, fm=DRAFT_FM)
+    expect_fail(lambda: validate_feature_folder(root, bad_mini), "mixed Mini Spec + Product Spec", "Mini Spec")
+    shutil.rmtree(bad_mini)
+
+    # 4. Clarify, readiness checkbox, placeholder provenance, short/zero source_revision
     bad_clarify = features / "003-bad"
     write_valid_pack(bad_clarify)
     (bad_clarify / "1. Product Spec.md").write_text(
@@ -253,7 +353,6 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     expect_fail(lambda: validate_clarify_gate(root, [bad_clarify / "1. Product Spec.md"]), "clarify in approved")
 
-    # Open checkbox in readiness checklist fails
     write_valid_pack(bad_clarify)
     (bad_clarify / "4. Tasks.md").write_text(
         (bad_clarify / "4. Tasks.md").read_text(encoding="utf-8").replace("- [x]", "- [ ]"),
@@ -261,7 +360,6 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     expect_fail(lambda: validate_clarify_gate(root, [bad_clarify / "4. Tasks.md"]), "unchecked readiness box")
 
-    # Placeholder approved_by: todo fails on numbered spec
     for bad_token in ("todo", "tbd", "draft", ""):
         write_valid_pack(bad_clarify)
         (bad_clarify / "2. Tech Spec.md").write_text(
@@ -275,91 +373,217 @@ with tempfile.TemporaryDirectory() as tmp:
             f"placeholder approved_by={bad_token!r}",
         )
 
-    # 4. Mixed draft/approved sibling specs fail pack-level consistency
-    write_valid_pack(bad_clarify, fm=APPROVED_FM)
-    (bad_clarify / "2. Tech Spec.md").write_text(
-        (bad_clarify / "2. Tech Spec.md").read_text(encoding="utf-8").replace("status: approved", "status: draft"),
-        encoding="utf-8",
-    )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "mixed draft/approved pack")
+    # All-zero 40-hex fails; short 7-hex warns when strict=False and fails when strict=True
+    write_mini_spec(bad_clarify, fm=APPROVED_FM.replace("b8b83557c19217002b0586c052b68e2684706057", "0" * 40))
+    expect_fail(lambda: validate_clarify_gate(root, [bad_clarify / "1. Mini Spec.md"]), "all-zero source_revision", "source_revision")
 
-    # 5. Ghost AC-99 fails even in draft
-    write_valid_pack(bad_clarify, fm=DRAFT_FM)
-    (bad_clarify / "4. Tasks.md").write_text(
-        (bad_clarify / "4. Tasks.md").read_text(encoding="utf-8").replace("AC-02", "AC-99"),
-        encoding="utf-8",
+    write_mini_spec(bad_clarify, fm=APPROVED_FM.replace("b8b83557c19217002b0586c052b68e2684706057", "b8b8355"))
+    short_warns = validate_clarify_gate(root, [bad_clarify / "1. Mini Spec.md"], strict=False)
+    assert any("b8b8355" in w for w in short_warns), f"expected short-SHA warning, got {short_warns}"
+    expect_fail(
+        lambda: validate_clarify_gate(root, [bad_clarify / "1. Mini Spec.md"], strict=True),
+        "short SHA under --strict",
+        "40-char",
     )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "ghost AC-99 in draft", "AC-99")
+    shutil.rmtree(bad_clarify)
 
-    # 6. Missing AC-02 coverage in approved fails; legacy 3-file approved warns without --require-tasks and fails with it
-    write_valid_pack(bad_clarify, fm=APPROVED_FM)
-    (bad_clarify / "2. Tech Spec.md").write_text(
-        "\n".join(
-            line
-            for line in (bad_clarify / "2. Tech Spec.md").read_text(encoding="utf-8").splitlines()
-            if "AC-02" not in line
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "missing AC-02 in Tech", "AC-02")
-
+    # 5. Legacy 3-file warning vs --require-tasks, invalid Status, cycle, glob, and [P] overlap
     legacy_3 = features / "004-legacy"
     write_valid_pack(legacy_3, fm=APPROVED_FM, with_tasks=False)
     warns = validate_feature_folder(root, legacy_3, require_tasks=False)
     assert len(warns) == 1 and "4. Tasks.md" in warns[0], f"expected legacy 3-file warning, got {warns}"
     expect_fail(lambda: validate_feature_folder(root, legacy_3, require_tasks=True), "legacy 3-file with --require-tasks", "4. Tasks.md")
+    shutil.rmtree(legacy_3)
 
-    # 7. Invalid Status, cycle, glob in Owned paths, and overlapping [P] Owned paths
+    bad_tasks = features / "008-bad-tasks"
     write_valid_pack(
-        bad_clarify,
+        bad_tasks,
         fm=DRAFT_FM,
         tasks_rows="| T-01 |bogus| no | - | AC-01 | `src/a` | Bad status | `pytest` |\n",
     )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "invalid task Status", "status")
+    expect_fail(lambda: validate_feature_folder(root, bad_tasks), "invalid task Status", "status")
 
     write_valid_pack(
-        bad_clarify,
+        bad_tasks,
         fm=DRAFT_FM,
         tasks_rows=(
             "| T-01 | todo | no | T-02 | AC-01 | `src/a` | A | `pytest` |\n"
             "| T-02 | todo | no | T-01 | AC-02 | `src/b` | B | `pytest` |\n"
         ),
     )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "task dependency cycle", "cycle")
+    expect_fail(lambda: validate_feature_folder(root, bad_tasks), "task dependency cycle", "cycle")
 
     write_valid_pack(
-        bad_clarify,
+        bad_tasks,
         fm=DRAFT_FM,
         tasks_rows="| T-01 | todo | no | - | AC-01 | `src/*` | Glob | `pytest` |\n",
     )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "glob in Owned paths", "glob")
+    expect_fail(lambda: validate_feature_folder(root, bad_tasks), "glob in Owned paths", "glob")
 
     write_valid_pack(
-        bad_clarify,
+        bad_tasks,
         fm=DRAFT_FM,
         tasks_rows=(
             "| T-01 | todo | yes | - | AC-01 | `src/api/` | Parent | `pytest` |\n"
             "| T-02 | todo | yes | - | AC-02 | `src/other, src/api/users.py` | Child | `pytest` |\n"
         ),
     )
-    expect_fail(lambda: validate_feature_folder(root, bad_clarify), "overlapping [P] Owned paths", "overlap")
+    expect_fail(lambda: validate_feature_folder(root, bad_tasks), "overlapping [P] Owned paths", "overlap")
+    shutil.rmtree(bad_tasks)
 
-    # CLI check for validate-project-docs.py --require-tasks on clean pack
-    bad_clarify_files = list(bad_clarify.glob("*"))
-    for f in bad_clarify_files:
-        f.unlink()
-    bad_clarify.rmdir()
-    for f in legacy_3.glob("*"):
-        f.unlink()
-    legacy_3.rmdir()
+    # CLI check for tools/validate-docs.py --require-tasks --strict
     tools = root / "tools"
     tools.mkdir()
-    (tools / "docs_validation.py").write_text((tests_dir / "docs_validation.py").read_text(encoding="utf-8"), encoding="utf-8")
-    (tools / "validate-docs.py").write_text((tests_dir / "validate-project-docs.py").read_text(encoding="utf-8"), encoding="utf-8")
+    (tools / "docs_validation.py").write_text((tools_src_dir / "docs_validation.py").read_text(encoding="utf-8"), encoding="utf-8")
+    (tools / "validate-docs.py").write_text((tools_src_dir / "validate-docs.py").read_text(encoding="utf-8"), encoding="utf-8")
     subprocess.run([sys.executable, "-B", str(tools / "validate-docs.py"), "--require-tasks"], check=True, stdout=subprocess.DEVNULL)
 
-print("PASS: semantic Clarify gate, cross-spec traceability, and [P] concurrency fixtures")
+# 6. Git-backed earliest-approved-commit tampering check + validate-task-evidence.py security unit tests
+with tempfile.TemporaryDirectory() as git_tmp:
+    groot = Path(git_tmp).resolve()
+    gfeatures = groot / "docs/current/05 - Product Features"
+    gfeatures.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(groot), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(groot), "config", "user.email", "test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(groot), "config", "user.name", "Test"], check=True)
+
+    gmini = gfeatures / "001-git-mini"
+    write_mini_spec(gmini, fm=DRAFT_FM)
+    (groot / "artifact.txt").write_text("v1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(groot), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(groot), "commit", "-qm", "draft commit"], check=True)
+    draft_sha = subprocess.check_output(["git", "-C", str(groot), "rev-parse", "HEAD"], text=True).strip()
+
+    # Newly approved spec stamped against draft HEAD passes BEFORE committing the approval!
+    stamped_fm = APPROVED_FM.replace("b8b83557c19217002b0586c052b68e2684706057", draft_sha)
+    write_mini_spec(gmini, fm=stamped_fm)
+    validate_clarify_gate(groot, [gmini / "1. Mini Spec.md"], strict=True)
+    assert validate_feature_folder(groot, gmini, require_tasks=True, strict=True) == []
+
+    # Commit the approved spec
+    subprocess.run(["git", "-C", str(groot), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(groot), "commit", "-qm", "approve mini spec"], check=True)
+    approved_sha = subprocess.check_output(["git", "-C", str(groot), "rev-parse", "HEAD"], text=True).strip()
+
+    # Converging task Status todo -> done preserves source_revision and passes!
+    mini_path = gmini / "1. Mini Spec.md"
+    converged_text = mini_path.read_text(encoding="utf-8").replace("| todo |", "| done |")
+    mini_path.write_text(converged_text, encoding="utf-8")
+    assert validate_feature_folder(groot, gmini, require_tasks=True, strict=True) == []
+
+    # Tampering with Acceptance criteria or Owned paths after approval WITHOUT refreshing source_revision fails!
+    mini_path.write_text(converged_text.replace("src/login.py", "src/hacked.py"), encoding="utf-8")
+    expect_fail(
+        lambda: validate_feature_folder(groot, gmini, require_tasks=True, strict=True),
+        "post-approval Owned paths tampering",
+        "Owned paths",
+    )
+    mini_path.write_text(converged_text.replace("200 OK", "201 Created"), encoding="utf-8")
+    expect_fail(
+        lambda: validate_feature_folder(groot, gmini, require_tasks=True, strict=True),
+        "post-approval AC tampering",
+        "Acceptance criteria",
+    )
+    mini_path.write_text(converged_text, encoding="utf-8")
+
+    # validate-task-evidence.py: \r\n + quoted status, --allow-working-tree draft-only, symlinks, scoped corrections
+    gtools = groot / "tools"
+    gtools.mkdir()
+    ev_validator = gtools / "validate-task-evidence.py"
+    ev_validator.write_text((tools_src_dir / "validate-task-evidence.py").read_text(encoding="utf-8"), encoding="utf-8")
+    ev_dir = groot / "task-evidence"
+    ev_dir.mkdir()
+    art_sha = hashlib.sha256((groot / "artifact.txt").read_bytes()).hexdigest()
+
+    # Draft evidence with --allow-working-tree passes; fails with --require-completed
+    draft_ev = ev_dir / "01-draft.md"
+    draft_ev.write_text(
+        "---\r\n"
+        'status: "draft"\r\n'
+        "task_id: t-draft\r\n"
+        "recorded_at: 2026-11-13\r\n"
+        "recorded_by: tester\r\n"
+        "source_revision: working-tree\r\n"
+        "environment: local/dev\r\n"
+        f"output_artifact_sha256: {art_sha}\r\n"
+        "output_artifact_path: artifact.txt\r\n"
+        "---\r\n"
+        "# Draft Evidence\r\n\r\n"
+        "| AC-01 | Check | cmd | Pass / 0 |\r\n",
+        encoding="utf-8",
+    )
+    subprocess.run([sys.executable, "-B", str(ev_validator), "--allow-working-tree"], check=True, stdout=subprocess.DEVNULL)
+    res_combo = subprocess.run(
+        [sys.executable, "-B", str(ev_validator), "--allow-working-tree", "--require-completed"],
+        capture_output=True,
+        text=True,
+    )
+    assert res_combo.returncode != 0, "expected --allow-working-tree --require-completed to fail"
+    draft_ev.unlink()
+
+    # Completed evidence with \r\n and quoted status: "completed" passes
+    comp_ev = ev_dir / "02-completed.md"
+    comp_ev.write_bytes(
+        (
+            "---\r\n"
+            'status: "completed"\r\n'
+            "task_id: t-comp\r\n"
+            "recorded_at: 2026-11-13\r\n"
+            "recorded_by: tester\r\n"
+            f"source_revision: {approved_sha}\r\n"
+            "completed_at: 2026-11-13\r\n"
+            "reviewer: lead\r\n"
+            "environment: local/dev\r\n"
+            f"output_artifact_sha256: {art_sha}\r\n"
+            "output_artifact_path: artifact.txt\r\n"
+            "---\r\n"
+            "# Completed Evidence\r\n\r\n"
+            "| AC-01 | Check | cmd | Pass / 0 |\r\n"
+        ).encode("utf-8")
+    )
+    subprocess.run([sys.executable, "-B", str(ev_validator), "--require-completed"], check=True, stdout=subprocess.DEVNULL)
+
+    # Completed evidence with source_revision: working-tree fails even with --allow-working-tree
+    bad_wt = ev_dir / "03-bad-wt.md"
+    bad_wt.write_text(
+        comp_ev.read_text(encoding="utf-8").replace(approved_sha, "working-tree"),
+        encoding="utf-8",
+    )
+    res_wt = subprocess.run([sys.executable, "-B", str(ev_validator), "--allow-working-tree"], capture_output=True, text=True)
+    assert res_wt.returncode != 0, "completed evidence must reject working-tree even with --allow-working-tree"
+    bad_wt.unlink()
+
+    # Scoped evidence-corrections.json ignored in downstream task-evidence/
+    bogus_rev = "1" * 40
+    comp_ev.write_text(comp_ev.read_text(encoding="utf-8").replace(approved_sha, bogus_rev), encoding="utf-8")
+    (ev_dir / "evidence-corrections.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "corrections": {
+                    "task-evidence/02-completed.md": {
+                        "source_revision": approved_sha,
+                        "reason": "spoof attempt in downstream dir",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    res_spoof = subprocess.run([sys.executable, "-B", str(ev_validator), "--require-completed"], capture_output=True, text=True)
+    assert res_spoof.returncode != 0, "downstream evidence-corrections.json must be ignored"
+    (ev_dir / "evidence-corrections.json").unlink()
+    comp_ev.write_text(comp_ev.read_text(encoding="utf-8").replace(bogus_rev, approved_sha), encoding="utf-8")
+
+    # Symlinked evidence file rejected
+    outside_ev = Path(git_tmp) / "outside.md"
+    outside_ev.write_text(comp_ev.read_text(encoding="utf-8"), encoding="utf-8")
+    sym_ev = ev_dir / "99-symlink.md"
+    sym_ev.symlink_to(outside_ev)
+    res_sym = subprocess.run([sys.executable, "-B", str(ev_validator)], capture_output=True, text=True)
+    assert res_sym.returncode != 0, "symlinked evidence file must fail"
+
+print("PASS: semantic Clarify gate, Mini-Spec, Git tampering, URI/embed, task-evidence, and [P] concurrency fixtures")
 PY
 
 echo "PASS: documentation guardrail validation"

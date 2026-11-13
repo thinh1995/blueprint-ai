@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
+exec < /dev/null
 
 TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$TEMPLATE_DIR/template-paths.sh"
@@ -50,7 +51,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((32 + core_doc_count))
+expected_file_count=$((37 + core_doc_count))
 
 (
     cd "$target"
@@ -87,11 +88,14 @@ if grep -R -E '^(\*Changelog:|\*Khởi tạo:)' "$target/docs/current" "$target/
     fail "default install copied template-repository changelog text"
 fi
 [ -f "$target/template-manifest.json" ] || fail "default install did not copy template manifest"
+[ -f "$target/docs/templates/mini-spec-template/1. Mini Spec.md" ] || fail "default install did not copy Mini-Spec template"
 [ -f "$target/CLAUDE.md" ] || fail "default install did not copy CLAUDE.md"
 [ -f "$target/GEMINI.md" ] || fail "default install did not copy GEMINI.md"
 [ -f "$target/QWEN.md" ] || fail "default install did not copy QWEN.md"
+[ -f "$target/.cursor/rules/agents.mdc" ] || fail "default install did not copy .cursor/rules/agents.mdc"
+[ -f "$target/.github/copilot-instructions.md" ] || fail "default install did not copy .github/copilot-instructions.md"
 for skill_dir in ".claude/skills" ".agents/skills" ".qwen/skills"; do
-    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement; do
+    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement sdd-fix; do
         [ -f "$target/$skill_dir/$skill_slug/SKILL.md" ] || fail "default install did not copy $skill_dir/$skill_slug/SKILL.md"
     done
 done
@@ -228,7 +232,7 @@ interactive_success_target="$TEST_DIR/interactive-success-target"
 mkdir -p "$interactive_success_target"
 (
     cd "$interactive_success_target"
-    printf '2,4\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive
+    printf '2,8\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive
 ) > "$TEST_DIR/interactive-success.txt"
 [ -f "$interactive_success_target/GEMINI.md" ] || fail "interactive setup did not install GEMINI.md"
 [ ! -e "$interactive_success_target/CLAUDE.md" ] || fail "interactive setup installed unselected CLAUDE.md"
@@ -433,8 +437,8 @@ assert_file_contains "$selected_adapter_directory_target/AGENTS.md" "preserve th
 
 link_boundary_target="$TEST_DIR/link-boundary-target"
 mkdir -p "$link_boundary_target/docs/current" "$link_boundary_target/tools"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$link_boundary_target/tools/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$link_boundary_target/tools/validate-docs.py"
+cp "$TEMPLATE_DIR/tools/docs_validation.py" "$link_boundary_target/tools/docs_validation.py"
+cp "$TEMPLATE_DIR/tools/validate-docs.py" "$link_boundary_target/tools/validate-docs.py"
 printf 'outside fixture root\n' > "$TEST_DIR/outside-fixture.md"
 printf '[outside](../../../outside-fixture.md)\n' > "$link_boundary_target/docs/current/escaping-link.md"
 if python3 "$link_boundary_target/tools/validate-docs.py" > "$TEST_DIR/link-boundary-output.txt" 2>&1; then
@@ -444,8 +448,8 @@ assert_file_contains "$TEST_DIR/link-boundary-output.txt" "escapes project root"
 
 file_uri_target="$TEST_DIR/file-uri-target"
 mkdir -p "$file_uri_target/docs/current" "$file_uri_target/tools"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$file_uri_target/tools/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$file_uri_target/tools/validate-docs.py"
+cp "$TEMPLATE_DIR/tools/docs_validation.py" "$file_uri_target/tools/docs_validation.py"
+cp "$TEMPLATE_DIR/tools/validate-docs.py" "$file_uri_target/tools/validate-docs.py"
 printf '[outside](file:///outside-fixture.md)\n' > "$file_uri_target/docs/current/file-uri-link.md"
 if python3 "$file_uri_target/tools/validate-docs.py" > "$TEST_DIR/file-uri-output.txt" 2>&1; then
     fail "downstream docs validator accepted a file URI"
@@ -460,7 +464,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "tools/new-feature.py" "tools/export-tasks.py" "task-evidence" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" ".cursor/rules/agents.mdc" ".github/copilot-instructions.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "tools/new-feature.py" "tools/export-tasks.py" "task-evidence" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -472,14 +476,11 @@ template_root = Path(sys.argv[1])
 target_root = Path(sys.argv[2])
 profile = json.loads((template_root / "template-manifest.json").read_text())["profiles"]["core"]
 source_overrides = {
-    "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
-    "tools/docs_validation.py": "tests/docs_validation.py",
-    "tools/validate-docs.py": "tests/validate-project-docs.py",
-    "tools/new-feature.py": "tests/new-feature.py",
-    "tools/export-tasks.py": "tests/export-tasks.py",
+    ".cursor/rules/agents.mdc": "adapters/cursor-agents.mdc",
+    ".github/copilot-instructions.md": "adapters/copilot-instructions.md",
 }
 for prefix in (".claude", ".agents", ".qwen"):
-    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement"):
+    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement", "sdd-fix"):
         source_overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
 expected: set[str] = set()
 for relative in profile:
@@ -501,15 +502,13 @@ PY
 
 metadata_template="$TEST_DIR/template-with-metadata"
 metadata_target="$TEST_DIR/metadata-target"
-mkdir -p "$metadata_template/tests" "$metadata_template/task-evidence" "$metadata_target"
+mkdir -p "$metadata_template/lib" "$metadata_template/task-evidence" "$metadata_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$metadata_template/$template_file"
 done
-cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/validate-task-evidence.py"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$metadata_template/tests/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/validate-project-docs.py"
-cp "$TEMPLATE_DIR/tests/new-feature.py" "$metadata_template/tests/new-feature.py"
-cp "$TEMPLATE_DIR/tests/export-tasks.py" "$metadata_template/tests/export-tasks.py"
+cp "$TEMPLATE_DIR/lib/installer_lib.py" "$metadata_template/lib/installer_lib.py"
+cp -R "$TEMPLATE_DIR/tools" "$metadata_template/tools"
+cp -R "$TEMPLATE_DIR/adapters" "$metadata_template/adapters"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
 cp -R "$TEMPLATE_DIR/skills" "$metadata_template/skills"
 touch "$metadata_template/task-evidence/.gitkeep"
@@ -522,15 +521,13 @@ printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 
 invalid_profile_template="$TEST_DIR/invalid-profile-template"
 invalid_profile_target="$TEST_DIR/invalid-profile-target"
-mkdir -p "$invalid_profile_template/tests" "$invalid_profile_template/task-evidence" "$invalid_profile_target"
+mkdir -p "$invalid_profile_template/lib" "$invalid_profile_template/task-evidence" "$invalid_profile_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$invalid_profile_template/$template_file"
 done
-cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$invalid_profile_template/tests/validate-task-evidence.py"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$invalid_profile_template/tests/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tests/validate-project-docs.py"
-cp "$TEMPLATE_DIR/tests/new-feature.py" "$invalid_profile_template/tests/new-feature.py"
-cp "$TEMPLATE_DIR/tests/export-tasks.py" "$invalid_profile_template/tests/export-tasks.py"
+cp "$TEMPLATE_DIR/lib/installer_lib.py" "$invalid_profile_template/lib/installer_lib.py"
+cp -R "$TEMPLATE_DIR/tools" "$invalid_profile_template/tools"
+cp -R "$TEMPLATE_DIR/adapters" "$invalid_profile_template/adapters"
 cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
 cp -R "$TEMPLATE_DIR/skills" "$invalid_profile_template/skills"
 touch "$invalid_profile_template/task-evidence/.gitkeep"
@@ -619,6 +616,7 @@ assert_file_contains "$TEST_DIR/invalid-schema-output.txt" "invalid profile path
 unprofiled_template="$TEST_DIR/unprofiled-template"
 unprofiled_target="$TEST_DIR/unprofiled-target"
 cp -R "$TEMPLATE_DIR" "$unprofiled_template"
+rm -rf "$unprofiled_template/plans" "$unprofiled_template"/.ai-template-backup.*
 mkdir -p "$unprofiled_target"
 printf '# Unprofiled fixture\n' > "$unprofiled_template/docs/current/unprofiled-fixture.md"
 if (
@@ -1045,7 +1043,7 @@ printf '%s\n' \
     '---' \
     '| AC-01 | fixture | fixture | PASS / 0 |' \
     > "$strict_evidence_dir/working-tree-fallback.md"
-if python3 "$TEMPLATE_DIR/tests/validate-task-evidence.py" --evidence-dir "$strict_evidence_dir" --require-completed > "$TEST_DIR/strict-evidence-output.txt" 2>&1; then
+if python3 "$TEMPLATE_DIR/tools/validate-task-evidence.py" --evidence-dir "$strict_evidence_dir" --require-completed > "$TEST_DIR/strict-evidence-output.txt" 2>&1; then
     fail "task evidence validator accepted a working-tree artifact missing from source revision"
 fi
 
@@ -1401,7 +1399,8 @@ from pathlib import Path
 legacy_dir = Path(sys.argv[1])
 for spec_name in ("1. Product Spec.md", "2. Tech Spec.md", "3. QA Spec.md"):
     spec_path = legacy_dir / spec_name
-    lines = [line for line in spec_path.read_text(encoding="utf-8").splitlines() if "[[4. Tasks]]" not in line]
+    text = spec_path.read_text(encoding="utf-8").replace(", [4. Tasks](./4.%20Tasks.md)", "")
+    lines = [line for line in text.splitlines() if "[[4. Tasks]]" not in line and "4.%20Tasks.md" not in line]
     spec_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 (
@@ -1436,7 +1435,7 @@ assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "Doctor result: NOT REA
 # --- v0.5.1 SDD Slash Commands & Agent Skills Pack regression tests ---
 
 assert_file_contains "$TEMPLATE_DIR/setup.sh" "--without-skills"
-assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 7 canonical SDD skills verified"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 8 canonical SDD skills verified"
 
 printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/claude"
 printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/qwen"
@@ -1445,7 +1444,7 @@ chmod +x "$TEST_DIR/bin/claude" "$TEST_DIR/bin/qwen"
 # 1. --without-skills fresh install, opt-out persistence across --update, --doctor INFO, and normal incremental re-enable
 without_skills_target="$TEST_DIR/without-skills-target"
 mkdir -p "$without_skills_target"
-no_skills_expected_count=$((11 + core_doc_count))
+no_skills_expected_count=$((13 + core_doc_count))
 (
     cd "$without_skills_target"
     bash "$TEMPLATE_DIR/setup.sh" --dry-run --without-skills
@@ -1497,7 +1496,7 @@ PY
     cd "$without_skills_target"
     PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
 ) > "$TEST_DIR/doctor-reenabled-skills.txt"
-assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 7 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 8 managed downstream SDD skill(s) verified"
 assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "Doctor result: READY"
 
 # 2. --update --without-skills preserves existing SKILL.md files on disk (non-destructive) and drops them from managed_paths
@@ -1602,7 +1601,7 @@ fi
     cd "$v050_skill_target"
     PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
 ) > "$TEST_DIR/doctor-v050-skills-ready.txt"
-assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 13 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 15 managed downstream SDD skill(s) verified"
 assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "Doctor result: READY"
 
 mv "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md" "$TEST_DIR/saved-sdd-docs-skill.md"
@@ -1626,5 +1625,379 @@ assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "FAIL skills:"
 assert_file_contains "$TEST_DIR/doctor-symlink-skill.txt" "setup.sh --update"
 rm -f "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
 mv "$TEST_DIR/saved-sdd-docs-skill.md" "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md"
+
+# --- v0.6.0 Framework Overhaul regression tests ---
+
+for mock_cli in opencode codex cursor-agent copilot; do
+    printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/$mock_cli"
+    chmod +x "$TEST_DIR/bin/$mock_cli"
+done
+
+# 1. opencode, codex (adapter=None + AGENTS.override.md), cursor (.cursor/rules/agents.mdc + parent symlink guard), and copilot sharing .agents/skills/ once
+v060_shared_target="$TEST_DIR/v060-shared-target"
+mkdir -p "$v060_shared_target"
+(
+    cd "$v060_shared_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models opencode,codex,cursor,copilot
+) > "$TEST_DIR/v060-shared-install.txt"
+[ -f "$v060_shared_target/AGENTS.md" ] || fail "v0.6.0 shared install missing AGENTS.md"
+[ -f "$v060_shared_target/.cursor/rules/agents.mdc" ] || fail "v0.6.0 shared install missing .cursor/rules/agents.mdc"
+[ -f "$v060_shared_target/.github/copilot-instructions.md" ] || fail "v0.6.0 shared install missing .github/copilot-instructions.md"
+[ ! -e "$v060_shared_target/CLAUDE.md" ] || fail "v0.6.0 shared install created unselected CLAUDE.md"
+[ ! -e "$v060_shared_target/GEMINI.md" ] || fail "v0.6.0 shared install created unselected GEMINI.md"
+[ ! -e "$v060_shared_target/QWEN.md" ] || fail "v0.6.0 shared install created unselected QWEN.md"
+[ ! -e "$v060_shared_target/.claude" ] || fail "v0.6.0 shared install created unselected .claude"
+[ ! -e "$v060_shared_target/.qwen" ] || fail "v0.6.0 shared install created unselected .qwen"
+assert_file_contains "$v060_shared_target/.cursor/rules/agents.mdc" "alwaysApply: true"
+assert_file_contains "$v060_shared_target/.cursor/rules/agents.mdc" "AGENTS.md"
+assert_file_contains "$v060_shared_target/.github/copilot-instructions.md" "AGENTS.md"
+python3 -B - "$v060_shared_target/template-manifest.json" "$v060_shared_target/.cursor/rules/agents.mdc" <<'PY'
+import json, sys
+from pathlib import Path
+
+m = json.load(open(sys.argv[1]))
+mdc_bytes = Path(sys.argv[2]).read_bytes()
+assert len(mdc_bytes) <= 450, len(mdc_bytes)
+assert m["selected_models"] == ["opencode", "codex", "cursor", "copilot"], m["selected_models"]
+assert m["managed_adapter_models"] == ["cursor", "copilot"], m["managed_adapter_models"]
+agent_skills = [p for p in m["managed_paths"] if p.startswith(".agents/skills/")]
+assert len(agent_skills) == 8 and len(set(agent_skills)) == 8, agent_skills
+core_skills = [p for p in m["profiles"]["core"] if p.startswith(".agents/skills/")]
+assert len(core_skills) == 8 and len(set(core_skills)) == 8, core_skills
+PY
+
+(
+    cd "$v060_shared_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v060-shared-update.txt"
+[ "$(grep -Fc 'INSTALLED: .agents/skills/sdd-fix/SKILL.md' "$TEST_DIR/v060-shared-update.txt")" -eq 1 ] || fail "shared .agents/skills copied more than once on --update"
+
+printf '# Local codex override\n' > "$v060_shared_target/AGENTS.override.md"
+(
+    cd "$v060_shared_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v060-codex-override-warn.txt"
+assert_file_contains "$TEST_DIR/v060-codex-override-warn.txt" "WARN runtime codex: unmanaged AGENTS.override.md"
+assert_file_contains "$TEST_DIR/v060-codex-override-warn.txt" "Doctor result: READY"
+if (
+    cd "$v060_shared_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+) > "$TEST_DIR/v060-codex-override-strict.txt" 2>&1; then
+    fail "--doctor --strict accepted unmanaged AGENTS.override.md"
+fi
+assert_file_contains "$TEST_DIR/v060-codex-override-strict.txt" "FAIL runtime codex: unmanaged AGENTS.override.md"
+
+cursor_symlink_target="$TEST_DIR/v060-cursor-symlink-target"
+outside_cursor_rules="$TEST_DIR/outside-cursor-rules"
+mkdir -p "$cursor_symlink_target/.cursor" "$outside_cursor_rules"
+ln -s "$outside_cursor_rules" "$cursor_symlink_target/.cursor/rules"
+if (
+    cd "$cursor_symlink_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models cursor
+) > "$TEST_DIR/v060-cursor-symlink.txt" 2>&1; then
+    fail "setup accepted symlinked .cursor/rules parent directory"
+fi
+assert_file_contains "$TEST_DIR/v060-cursor-symlink.txt" "Refusing to write through symlink"
+[ ! -e "$outside_cursor_rules/agents.mdc" ] || fail "setup wrote through .cursor/rules symlink"
+[ ! -e "$cursor_symlink_target/AGENTS.md" ] || fail "preflight wrote files before rejecting .cursor/rules symlink"
+
+# 2. Non-TTY omitted --models AND interactive blank Enter select 1..7 (exclude gemma) and pass --doctor out-of-the-box; --models all includes gemma and fails --doctor
+v060_nontty_target="$TEST_DIR/v060-nontty-target"
+v060_blank_enter_target="$TEST_DIR/v060-blank-enter-target"
+v060_models_all_target="$TEST_DIR/v060-models-all-target"
+mkdir -p "$v060_nontty_target" "$v060_blank_enter_target" "$v060_models_all_target"
+(
+    cd "$v060_nontty_target"
+    bash "$TEMPLATE_DIR/setup.sh" < /dev/null >/dev/null
+)
+(
+    cd "$v060_blank_enter_target"
+    printf '\n' | bash "$TEMPLATE_DIR/setup.sh" --interactive >/dev/null
+)
+for def_dir in "$v060_nontty_target" "$v060_blank_enter_target"; do
+    python3 -B - "$def_dir/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+expected = ["claude", "antigravity", "qwen", "opencode", "codex", "cursor", "copilot"]
+assert m["selected_models"] == expected, m["selected_models"]
+assert "gemma" not in m["selected_models"]
+PY
+    (
+        cd "$def_dir"
+        PATH="$doctor_src_bin" bash "$TEMPLATE_DIR/setup.sh" --doctor
+    ) > "$TEST_DIR/v060-default-doctor-nocli.txt"
+    assert_file_contains "$TEST_DIR/v060-default-doctor-nocli.txt" "WARN runtime claude: command 'claude' is unavailable locally"
+    assert_file_contains "$TEST_DIR/v060-default-doctor-nocli.txt" "Doctor result: READY"
+    if (
+        cd "$def_dir"
+        PATH="$doctor_src_bin" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+    ) > "$TEST_DIR/v060-default-doctor-strict-nocli.txt" 2>&1; then
+        fail "--doctor --strict passed when selected runtime CLIs were absent"
+    fi
+    assert_file_contains "$TEST_DIR/v060-default-doctor-strict-nocli.txt" "FAIL runtime claude: command 'claude' is unavailable"
+    (
+        cd "$def_dir"
+        PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+    ) > "$TEST_DIR/v060-default-doctor-strict-ready.txt"
+    assert_file_contains "$TEST_DIR/v060-default-doctor-strict-ready.txt" "Doctor result: READY"
+done
+
+(
+    cd "$v060_models_all_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models all >/dev/null
+)
+python3 -B -c 'import json, sys; m = json.load(open(sys.argv[1])); assert "gemma" in m["selected_models"] and len(m["selected_models"]) == 8' "$v060_models_all_target/template-manifest.json"
+if (
+    cd "$v060_models_all_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v060-models-all-doctor.txt" 2>&1; then
+    fail "--models all passed --doctor despite including gemma"
+fi
+assert_file_contains "$TEST_DIR/v060-models-all-doctor.txt" "FAIL runtime gemma"
+
+# 3. Brownfield repo with pre-existing custom .github/copilot-instructions.md: preserved on install & --update --set-models, WARN in default --doctor and FAIL in --doctor --strict
+v060_brownfield_target="$TEST_DIR/v060-brownfield-target"
+mkdir -p "$v060_brownfield_target/.github"
+printf '# Custom enterprise Copilot policy without canonical pointer\n' > "$v060_brownfield_target/.github/copilot-instructions.md"
+(
+    cd "$v060_brownfield_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models copilot,claude >/dev/null
+)
+assert_file_contains "$v060_brownfield_target/.github/copilot-instructions.md" "Custom enterprise Copilot policy"
+python3 -B - "$v060_brownfield_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["managed_adapter_models"] == ["claude"], m["managed_adapter_models"]
+assert ".github/copilot-instructions.md" not in m["managed_paths"]
+PY
+(
+    cd "$v060_brownfield_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models copilot
+) > "$TEST_DIR/v060-brownfield-setmodels.txt"
+assert_file_contains "$TEST_DIR/v060-brownfield-setmodels.txt" "SKIP (user-owned adapter): .github/copilot-instructions.md"
+assert_file_contains "$TEST_DIR/v060-brownfield-setmodels.txt" "PRUNED (deselected): CLAUDE.md"
+assert_file_contains "$v060_brownfield_target/.github/copilot-instructions.md" "Custom enterprise Copilot policy"
+[ ! -e "$v060_brownfield_target/CLAUDE.md" ] || fail "brownfield --set-models did not prune deselected CLAUDE.md"
+[ ! -e "$v060_brownfield_target/.claude" ] || fail "brownfield --set-models left empty .claude directory"
+(
+    cd "$v060_brownfield_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v060-brownfield-doctor.txt"
+assert_file_contains "$TEST_DIR/v060-brownfield-doctor.txt" "WARN runtime copilot: user-owned .github/copilot-instructions.md does not reference AGENTS.md"
+assert_file_contains "$TEST_DIR/v060-brownfield-doctor.txt" "Doctor result: READY"
+if (
+    cd "$v060_brownfield_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+) > "$TEST_DIR/v060-brownfield-doctor-strict.txt" 2>&1; then
+    fail "--doctor --strict accepted brownfield copilot instructions missing AGENTS.md reference"
+fi
+assert_file_contains "$TEST_DIR/v060-brownfield-doctor-strict.txt" "FAIL runtime copilot: .github/copilot-instructions.md does not delegate to AGENTS.md"
+
+# 4. --update --set-models orphan pruning, user-modified deselected file preservation, clean re-selection without lockout, and SHA-256 / CREATED_FILES.txt crash recovery
+v060_setmodels_target="$TEST_DIR/v060-setmodels-target"
+mkdir -p "$v060_setmodels_target"
+(
+    cd "$v060_setmodels_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude,cursor,qwen >/dev/null
+)
+printf '\n# local qwen customization\n' >> "$v060_setmodels_target/QWEN.md"
+(
+    cd "$v060_setmodels_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude
+) > "$TEST_DIR/v060-setmodels-prune.txt"
+assert_file_contains "$TEST_DIR/v060-setmodels-prune.txt" "PRUNED (deselected): .cursor/rules/agents.mdc"
+assert_file_contains "$TEST_DIR/v060-setmodels-prune.txt" "WARN: preserving user-modified deselected file: QWEN.md"
+[ ! -e "$v060_setmodels_target/.cursor" ] || fail "--set-models did not prune empty .cursor directory"
+[ ! -e "$v060_setmodels_target/.agents" ] || fail "--set-models did not prune empty .agents directory"
+[ ! -e "$v060_setmodels_target/.qwen" ] || fail "--set-models did not prune empty .qwen directory"
+assert_file_contains "$v060_setmodels_target/QWEN.md" "# local qwen customization"
+
+(
+    cd "$v060_setmodels_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude,cursor
+) > "$TEST_DIR/v060-setmodels-reselect.txt"
+[ -f "$v060_setmodels_target/.cursor/rules/agents.mdc" ] || fail "re-selecting cursor did not reinstall .cursor/rules/agents.mdc"
+[ -f "$v060_setmodels_target/.agents/skills/sdd-fix/SKILL.md" ] || fail "re-selecting cursor did not reinstall .agents/skills/sdd-fix/SKILL.md"
+if grep -Fq "SKIP (user-owned adapter)" "$TEST_DIR/v060-setmodels-reselect.txt"; then
+    fail "re-selecting cursor triggered USER_OWNED lockout"
+fi
+reselect_backup_dir="$(ls -dt "$v060_setmodels_target"/.ai-template-backup.* | head -n 1)"
+assert_file_contains "$reselect_backup_dir/CREATED_FILES.txt" ".cursor/rules/agents.mdc"
+python3 -B - "$v060_setmodels_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+assert m["managed_adapter_models"] == ["claude", "cursor"], m["managed_adapter_models"]
+PY
+
+# Simulate interrupted --update where canonical .agents/skills/sdd-fix/SKILL.md was written before manifest update
+python3 -B - "$v060_setmodels_target/template-manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m["managed_paths"] = [x for x in m["managed_paths"] if x != ".agents/skills/sdd-fix/SKILL.md"]
+m["profiles"]["core"] = [x for x in m["profiles"]["core"] if x != ".agents/skills/sdd-fix/SKILL.md"]
+open(p, "w").write(json.dumps(m, indent=2) + "\n")
+PY
+rm -rf "$v060_setmodels_target"/.ai-template-backup.*
+(
+    cd "$v060_setmodels_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v060-crash-recovery.txt"
+if grep -Fq "SKIP (user-owned skill): .agents/skills/sdd-fix/SKILL.md" "$TEST_DIR/v060-crash-recovery.txt"; then
+    fail "crash recovery locked out unrecorded canonical sdd-fix/SKILL.md as user-owned"
+fi
+python3 -B -c 'import json, sys; m = json.load(open(sys.argv[1])); assert ".agents/skills/sdd-fix/SKILL.md" in m["managed_paths"]' "$v060_setmodels_target/template-manifest.json"
+
+# 5. --doctor ignores broken links inside plans/, node_modules/, .venv/, and .ai-template-backup.*/ while warning on unignored .ai-template-backup.*
+v060_doctor_ignore_target="$TEST_DIR/v060-doctor-ignore-target"
+mkdir -p "$v060_doctor_ignore_target"
+(
+    cd "$v060_doctor_ignore_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude >/dev/null
+)
+mkdir -p "$v060_doctor_ignore_target/plans" "$v060_doctor_ignore_target/node_modules/pkg" "$v060_doctor_ignore_target/.venv/lib" "$v060_doctor_ignore_target/.ai-template-backup.manual1"
+printf '[broken](./does-not-exist.md)\n' > "$v060_doctor_ignore_target/plans/roadmap.md"
+printf '[broken](./does-not-exist.md)\n' > "$v060_doctor_ignore_target/node_modules/pkg/README.md"
+printf '[broken](./does-not-exist.md)\n' > "$v060_doctor_ignore_target/.venv/lib/README.md"
+printf '[broken](./does-not-exist.md)\n' > "$v060_doctor_ignore_target/.ai-template-backup.manual1/RECOVERY.md"
+git -C "$v060_doctor_ignore_target" init -q
+(
+    cd "$v060_doctor_ignore_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v060-doctor-ignore-unignored.txt"
+assert_file_contains "$TEST_DIR/v060-doctor-ignore-unignored.txt" "PASS docs links:"
+assert_file_contains "$TEST_DIR/v060-doctor-ignore-unignored.txt" "WARN backup: local backup directory .ai-template-backup.manual1 is present and not git-ignored"
+assert_file_contains "$TEST_DIR/v060-doctor-ignore-unignored.txt" "Doctor result: READY"
+
+printf '.ai-template-backup.*/\nplans/\n' > "$v060_doctor_ignore_target/.gitignore"
+(
+    cd "$v060_doctor_ignore_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v060-doctor-ignore-clean.txt"
+if grep -Fq "WARN backup:" "$TEST_DIR/v060-doctor-ignore-clean.txt"; then
+    fail "--doctor warned about .ai-template-backup.* even after .gitignore covered it"
+fi
+
+# 6. Mini-Spec scaffolding (including custom preset without 4-file README leak), NNN- slug guard, export-tasks.py on 1. Mini Spec.md, and v0.5.1 -> v0.6.0 migration
+python3 -B "$preset_target/tools/new-feature.py" mini-custom --mini > "$TEST_DIR/nf-mini-custom.txt"
+[ -f "$preset_target/docs/current/05 - Product Features/005-mini-custom/1. Mini Spec.md" ] || fail "new-feature --mini with custom default_preset did not create 1. Mini Spec.md"
+[ ! -e "$preset_target/docs/current/05 - Product Features/005-mini-custom/README.md" ] || fail "new-feature --mini leaked custom 4-file preset README.md"
+[ "$(find "$preset_target/docs/current/05 - Product Features/005-mini-custom" -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 1 ] || fail "expected 1 file in 005-mini-custom"
+
+python3 -B "$preset_target/tools/new-feature.py" mini-web --mini --preset web-api > "$TEST_DIR/nf-mini-web.txt"
+[ -f "$preset_target/docs/current/05 - Product Features/006-mini-web/1. Mini Spec.md" ] || fail "new-feature --mini --preset web-api did not create 1. Mini Spec.md"
+assert_file_contains "$preset_target/docs/current/05 - Product Features/006-mini-web/1. Mini Spec.md" "HTTP route, hợp đồng request/response"
+assert_file_contains "$preset_target/docs/current/05 - Product Features/006-mini-web/1. Mini Spec.md" 'src/api/handlers/'
+
+if python3 -B "$preset_target/tools/new-feature.py" 001-dup-prefix > "$TEST_DIR/nf-nnn-guard.txt" 2>&1; then
+    fail "new-feature accepted slug starting with NNN- prefix"
+fi
+assert_file_contains "$TEST_DIR/nf-nnn-guard.txt" "do not include a leading numeric prefix"
+
+python3 -B "$preset_target/tools/validate-docs.py" > "$TEST_DIR/nf-mini-validate.txt"
+assert_file_contains "$TEST_DIR/nf-mini-validate.txt" "PASS: downstream documentation links and Mermaid structure"
+
+python3 -B - "$preset_target/docs/current/05 - Product Features/006-mini-web/1. Mini Spec.md" <<'PY'
+import re, sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+text = p.read_text(encoding="utf-8")
+text = text.replace("status: draft", "status: approved", 1)
+text = text.replace("approved_by:", "approved_by: tech-lead", 1)
+text = text.replace("approved_at:", "approved_at: 2026-11-13", 1)
+text = text.replace("approval_evidence:", "approval_evidence: PR-206", 1)
+text = text.replace("source_revision:", "source_revision: b8b83557c19217002b0586c052b68e2684706057", 1)
+text = text.replace("- [ ]", "- [x]")
+text = re.sub(
+    r"^\| T-01 \|.*$",
+    "| T-01 | todo | no | - | AC-01 | `src/api/mini.py` | Implement mini endpoint | `pytest tests/test_mini.py` |\n"
+    "| T-02 | todo | no | T-01 | - | `docs/api.md` | Sync API note | `python3 -B tools/validate-docs.py` |",
+    text,
+    flags=re.M,
+)
+p.write_text(text, encoding="utf-8")
+PY
+
+python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/006-mini-web" --format markdown > "$TEST_DIR/export-mini.md"
+assert_file_contains "$TEST_DIR/export-mini.md" '- Related AC: `-`'
+if grep -Fq 'AC--' "$TEST_DIR/export-mini.md"; then
+    fail "export-tasks rendered AC-- for Related AC = -"
+fi
+
+if python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/006-mini-web" --label "bad,label" > "$TEST_DIR/export-bad-label.txt" 2>&1; then
+    fail "export-tasks accepted comma-containing --label"
+fi
+assert_file_contains "$TEST_DIR/export-bad-label.txt" "invalid --label"
+
+printf '[]\n' > "$TEST_DIR/mock-gh-mini-store.json"
+: > "$TEST_DIR/mock-gh-mini.log"
+MOCK_GH_STORE="$TEST_DIR/mock-gh-mini-store.json" MOCK_GH_LOG="$TEST_DIR/mock-gh-mini.log" PATH="$TEST_DIR/bin:$PATH" \
+    python3 -B "$preset_target/tools/export-tasks.py" "$preset_target/docs/current/05 - Product Features/006-mini-web" --apply-gh --repo acme/demo --label sdd-mini > "$TEST_DIR/apply-gh-mini.txt"
+[ "$(grep -Ec '^issue list ' "$TEST_DIR/mock-gh-mini.log")" -eq 1 ] || fail "export-tasks invoked gh issue list more than once"
+assert_file_contains "$TEST_DIR/mock-gh-mini.log" "--json number,title,state,url"
+assert_file_contains "$TEST_DIR/mock-gh-mini.log" "[006-mini-web]["
+assert_file_contains "$TEST_DIR/apply-gh-mini.txt" "CREATED: [006-mini-web][T-01]"
+assert_file_contains "$TEST_DIR/apply-gh-mini.txt" "CREATED: [006-mini-web][T-02]"
+
+# v0.5.1 -> v0.6.0 --update migration with legacy 7-hex source_revision
+v051_template_commit="c8b389e7b9670ac1868f3711bc1174a94997f310"
+v051_template_source="$TEST_DIR/v051-template-source"
+v051_mig_target="$TEST_DIR/v051-mig-target"
+mkdir -p "$v051_template_source" "$v051_mig_target"
+git -C "$TEMPLATE_DIR" archive "$v051_template_commit" | tar -x -C "$v051_template_source"
+(
+    cd "$v051_mig_target"
+    bash "$v051_template_source/setup.sh" --models claude,antigravity >/dev/null
+)
+cp -R "$preset_target/docs/current/05 - Product Features/001-auth" "$v051_mig_target/docs/current/05 - Product Features/001-shortsha"
+python3 -B - "$v051_mig_target/docs/current/05 - Product Features/001-shortsha" <<'PY'
+import sys
+from pathlib import Path
+
+d = Path(sys.argv[1])
+for name in ("1. Product Spec.md", "2. Tech Spec.md", "3. QA Spec.md", "4. Tasks.md"):
+    p = d / name
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            "source_revision: b8b83557c19217002b0586c052b68e2684706057",
+            "source_revision: b8b8355",
+        ),
+        encoding="utf-8",
+    )
+PY
+(
+    cd "$v051_mig_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude,cursor
+) > "$TEST_DIR/v051-to-v060-update.txt"
+assert_file_contains "$TEST_DIR/v051-to-v060-update.txt" "PRUNED (deselected): GEMINI.md"
+[ ! -e "$v051_mig_target/GEMINI.md" ] || fail "v0.5.1 -> v0.6.0 --set-models did not prune untouched v0.5.1 GEMINI.md"
+[ -f "$v051_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.5.1 -> v0.6.0 --set-models did not install .cursor/rules/agents.mdc"
+[ -f "$v051_mig_target/.agents/skills/sdd-fix/SKILL.md" ] || fail "v0.5.1 -> v0.6.0 --set-models did not install sdd-fix/SKILL.md"
+(
+    cd "$v051_mig_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v051-mig-doctor.txt"
+assert_file_contains "$TEST_DIR/v051-mig-doctor.txt" "WARN spec readiness:"
+assert_file_contains "$TEST_DIR/v051-mig-doctor.txt" "Doctor result: READY"
+if (
+    cd "$v051_mig_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+) > "$TEST_DIR/v051-mig-doctor-strict.txt" 2>&1; then
+    fail "--doctor --strict accepted legacy 7-hex source_revision"
+fi
+assert_file_contains "$TEST_DIR/v051-mig-doctor-strict.txt" "FAIL spec readiness:"
+
+# 7. Source-template direct tools/ layout: validate-docs.py & --list-presets/--dry-run pass, while real scaffolding into source template is refused
+python3 -B "$TEMPLATE_DIR/tools/validate-docs.py" --strict > "$TEST_DIR/source-validate-docs.txt"
+assert_file_contains "$TEST_DIR/source-validate-docs.txt" "PASS:"
+python3 -B "$TEMPLATE_DIR/tools/new-feature.py" --list-presets > "$TEST_DIR/source-list-presets.txt"
+assert_file_contains "$TEST_DIR/source-list-presets.txt" "web-api"
+python3 -B "$TEMPLATE_DIR/tools/new-feature.py" preview-only --dry-run > "$TEST_DIR/source-dry-run.txt"
+assert_file_contains "$TEST_DIR/source-dry-run.txt" "DRY-RUN:"
+if python3 -B "$TEMPLATE_DIR/tools/new-feature.py" accidental-spec > "$TEST_DIR/source-refuse-scaffold.txt" 2>&1; then
+    fail "tools/new-feature.py allowed writing into source ai-project-template repository"
+fi
+assert_file_contains "$TEST_DIR/source-refuse-scaffold.txt" "refusing to scaffold feature specs inside the source ai-project-template repository"
 
 echo "PASS: setup installer regression tests"

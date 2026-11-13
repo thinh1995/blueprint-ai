@@ -4,6 +4,8 @@
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -36,7 +38,16 @@ def main() -> None:
         require_text(policy, text)
     for text in ["BẮT BUỘC tạo các sub-agent phù hợp", "không nói rằng đã tạo sub-agent"]:
         require_text(prompt, text)
-    for text in ["Codex-compatible host", "Claude Code", "Antigravity CLI", "Qwen Code", "Gemma/custom harness"]:
+    for text in [
+        "Codex-compatible host",
+        "Claude Code",
+        "Antigravity CLI",
+        "Qwen Code",
+        "OpenCode",
+        "Cursor",
+        "GitHub Copilot",
+        "Gemma/custom harness",
+    ]:
         require_text(runtime, text)
     for text in ["## Roles", "## Required handoff", "## Coordinator completion gate"]:
         require_text(contract, text)

@@ -4,13 +4,13 @@ owner: product
 ---
 # BA Foundation
 
-Complete this note before treating feature specifications as an approved product baseline.
+Hoàn thiện ghi chú nền tảng phân tích nghiệp vụ này trước khi xem các đặc tả tính năng riêng lẻ trong `05 - Product Features/` là chuẩn sản phẩm đã được phê duyệt.
 
 ## Product scope
 
-- In scope:
-- Out of scope:
-- Release / priority boundary:
+- Trong phạm vi dự án:
+- Ngoài phạm vi dự án:
+- Ranh giới phát hành / thứ tự ưu tiên:
 
 ## Assumptions and constraints
 

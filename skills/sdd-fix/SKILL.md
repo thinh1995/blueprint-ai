@@ -26,7 +26,7 @@ Activate this skill **ONLY** when the user explicitly invokes `/sdd-fix` or expl
 4. **Converge, Validate & Evidence:**
    - Make targeted updates to affected `docs/current/` notes if observable behavior, contracts, or operational runbooks changed.
    - Run automated tests plus `python3 tools/validate-docs.py`.
-   - Record per-task evidence from `docs/templates/3. Task Evidence Template.md` in `task-evidence/` (or in `docs/internal/task-evidence/` validated with `python3 tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence` when editing this template repository).
+   - Record per-task evidence from `docs/templates/3. Task Evidence Template.md` in `task-evidence/` (or in `docs/internal/task-evidence/` validated with `python3 tools/validate-task-evidence.py --evidence-dir docs/internal/task-evidence` when editing this template repository).
 
 ## Trust, Environment & Reporting Rules
 

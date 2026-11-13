@@ -23,7 +23,7 @@ Activate **ONLY** on explicit `/sdd-implement` invocation or an explicit Stage 6
    - **Blocked tasks:** On missing decisions, failing dependencies, environment blockers, or contract changes outside `Owned paths` / locked `AC-xx`, set `Status` to `blocked`, skip dependents, report evidence, and **stop** (route contract edits via `/sdd-analyze` Spec Amendment).
    - **Coordinator-only writes (`[P] = yes`):** Parallel sub-agents write **only** inside their non-overlapping `Owned paths` and return `Fact / Assumption / Unknown` handoffs; **only the coordinator** writes `4. Tasks.md`, `1. Mini Spec.md`, `3. QA Spec.md`, shared `docs/current/` notes, or `task-evidence/`.
    - **Convergence & immutable `Verification`:** Never mutate `## Acceptance criteria`, `Owned paths`, or `Verification` post-approval. In `1. Mini Spec.md`, update **only** `Status` and `[x]` checkboxes (record actual test output in `task-evidence/`; on 4-file packs also update `3. QA Spec.md` results). Sync affected `docs/current/` notes on behavior changes and re-run `python3 tools/validate-docs.py --require-tasks`.
-   - Record evidence from `docs/templates/3. Task Evidence Template.md` in `task-evidence/` (or `docs/internal/task-evidence/` validated with `tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence` for template-repo edits).
+   - Record evidence from `docs/templates/3. Task Evidence Template.md` in `task-evidence/` (or `docs/internal/task-evidence/` validated with `tools/validate-task-evidence.py --evidence-dir docs/internal/task-evidence` for template-repo edits).
 
 ## Trust, Environment & Reporting Rules
 

@@ -12,12 +12,13 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 TESTS_DIR = Path(__file__).resolve().parent
-if str(TESTS_DIR) not in sys.path:
-    sys.path.insert(0, str(TESTS_DIR))
+ROOT = TESTS_DIR.parent
+TOOLS_DIR = ROOT / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
 
 from docs_validation import require, strip_code  # noqa: E402
 
-ROOT = TESTS_DIR.parent
 MAX_SKILL_BYTES = 4096
 MAX_DESCRIPTION_CHARS = 1024
 

@@ -437,8 +437,8 @@ assert_file_contains "$selected_adapter_directory_target/AGENTS.md" "preserve th
 
 link_boundary_target="$TEST_DIR/link-boundary-target"
 mkdir -p "$link_boundary_target/docs/current" "$link_boundary_target/tools"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$link_boundary_target/tools/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$link_boundary_target/tools/validate-docs.py"
+cp "$TEMPLATE_DIR/tools/docs_validation.py" "$link_boundary_target/tools/docs_validation.py"
+cp "$TEMPLATE_DIR/tools/validate-docs.py" "$link_boundary_target/tools/validate-docs.py"
 printf 'outside fixture root\n' > "$TEST_DIR/outside-fixture.md"
 printf '[outside](../../../outside-fixture.md)\n' > "$link_boundary_target/docs/current/escaping-link.md"
 if python3 "$link_boundary_target/tools/validate-docs.py" > "$TEST_DIR/link-boundary-output.txt" 2>&1; then
@@ -448,8 +448,8 @@ assert_file_contains "$TEST_DIR/link-boundary-output.txt" "escapes project root"
 
 file_uri_target="$TEST_DIR/file-uri-target"
 mkdir -p "$file_uri_target/docs/current" "$file_uri_target/tools"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$file_uri_target/tools/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$file_uri_target/tools/validate-docs.py"
+cp "$TEMPLATE_DIR/tools/docs_validation.py" "$file_uri_target/tools/docs_validation.py"
+cp "$TEMPLATE_DIR/tools/validate-docs.py" "$file_uri_target/tools/validate-docs.py"
 printf '[outside](file:///outside-fixture.md)\n' > "$file_uri_target/docs/current/file-uri-link.md"
 if python3 "$file_uri_target/tools/validate-docs.py" > "$TEST_DIR/file-uri-output.txt" 2>&1; then
     fail "downstream docs validator accepted a file URI"
@@ -478,11 +478,6 @@ profile = json.loads((template_root / "template-manifest.json").read_text())["pr
 source_overrides = {
     ".cursor/rules/agents.mdc": "adapters/cursor-agents.mdc",
     ".github/copilot-instructions.md": "adapters/copilot-instructions.md",
-    "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
-    "tools/docs_validation.py": "tests/docs_validation.py",
-    "tools/validate-docs.py": "tests/validate-project-docs.py",
-    "tools/new-feature.py": "tests/new-feature.py",
-    "tools/export-tasks.py": "tests/export-tasks.py",
 }
 for prefix in (".claude", ".agents", ".qwen"):
     for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement", "sdd-fix"):
@@ -507,16 +502,12 @@ PY
 
 metadata_template="$TEST_DIR/template-with-metadata"
 metadata_target="$TEST_DIR/metadata-target"
-mkdir -p "$metadata_template/tests" "$metadata_template/task-evidence" "$metadata_target"
+mkdir -p "$metadata_template/lib" "$metadata_template/task-evidence" "$metadata_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$metadata_template/$template_file"
 done
-cp "$TEMPLATE_DIR/tests/installer_lib.py" "$metadata_template/tests/installer_lib.py"
-cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$metadata_template/tests/validate-task-evidence.py"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$metadata_template/tests/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$metadata_template/tests/validate-project-docs.py"
-cp "$TEMPLATE_DIR/tests/new-feature.py" "$metadata_template/tests/new-feature.py"
-cp "$TEMPLATE_DIR/tests/export-tasks.py" "$metadata_template/tests/export-tasks.py"
+cp "$TEMPLATE_DIR/lib/installer_lib.py" "$metadata_template/lib/installer_lib.py"
+cp -R "$TEMPLATE_DIR/tools" "$metadata_template/tools"
 cp -R "$TEMPLATE_DIR/adapters" "$metadata_template/adapters"
 cp -R "$TEMPLATE_DIR/docs" "$metadata_template/docs"
 cp -R "$TEMPLATE_DIR/skills" "$metadata_template/skills"
@@ -530,16 +521,12 @@ printf 'finder metadata\n' > "$metadata_template/docs/.DS_Store"
 
 invalid_profile_template="$TEST_DIR/invalid-profile-template"
 invalid_profile_target="$TEST_DIR/invalid-profile-target"
-mkdir -p "$invalid_profile_template/tests" "$invalid_profile_template/task-evidence" "$invalid_profile_target"
+mkdir -p "$invalid_profile_template/lib" "$invalid_profile_template/task-evidence" "$invalid_profile_target"
 for template_file in setup.sh template-paths.sh AGENTS.md CLAUDE.md GEMINI.md QWEN.md template-manifest.json; do
     cp "$TEMPLATE_DIR/$template_file" "$invalid_profile_template/$template_file"
 done
-cp "$TEMPLATE_DIR/tests/installer_lib.py" "$invalid_profile_template/tests/installer_lib.py"
-cp "$TEMPLATE_DIR/tests/validate-task-evidence.py" "$invalid_profile_template/tests/validate-task-evidence.py"
-cp "$TEMPLATE_DIR/tests/docs_validation.py" "$invalid_profile_template/tests/docs_validation.py"
-cp "$TEMPLATE_DIR/tests/validate-project-docs.py" "$invalid_profile_template/tests/validate-project-docs.py"
-cp "$TEMPLATE_DIR/tests/new-feature.py" "$invalid_profile_template/tests/new-feature.py"
-cp "$TEMPLATE_DIR/tests/export-tasks.py" "$invalid_profile_template/tests/export-tasks.py"
+cp "$TEMPLATE_DIR/lib/installer_lib.py" "$invalid_profile_template/lib/installer_lib.py"
+cp -R "$TEMPLATE_DIR/tools" "$invalid_profile_template/tools"
 cp -R "$TEMPLATE_DIR/adapters" "$invalid_profile_template/adapters"
 cp -R "$TEMPLATE_DIR/docs" "$invalid_profile_template/docs"
 cp -R "$TEMPLATE_DIR/skills" "$invalid_profile_template/skills"
@@ -1056,7 +1043,7 @@ printf '%s\n' \
     '---' \
     '| AC-01 | fixture | fixture | PASS / 0 |' \
     > "$strict_evidence_dir/working-tree-fallback.md"
-if python3 "$TEMPLATE_DIR/tests/validate-task-evidence.py" --evidence-dir "$strict_evidence_dir" --require-completed > "$TEST_DIR/strict-evidence-output.txt" 2>&1; then
+if python3 "$TEMPLATE_DIR/tools/validate-task-evidence.py" --evidence-dir "$strict_evidence_dir" --require-completed > "$TEST_DIR/strict-evidence-output.txt" 2>&1; then
     fail "task evidence validator accepted a working-tree artifact missing from source revision"
 fi
 
@@ -2000,5 +1987,17 @@ if (
     fail "--doctor --strict accepted legacy 7-hex source_revision"
 fi
 assert_file_contains "$TEST_DIR/v051-mig-doctor-strict.txt" "FAIL spec readiness:"
+
+# 7. Source-template direct tools/ layout: validate-docs.py & --list-presets/--dry-run pass, while real scaffolding into source template is refused
+python3 -B "$TEMPLATE_DIR/tools/validate-docs.py" --strict > "$TEST_DIR/source-validate-docs.txt"
+assert_file_contains "$TEST_DIR/source-validate-docs.txt" "PASS:"
+python3 -B "$TEMPLATE_DIR/tools/new-feature.py" --list-presets > "$TEST_DIR/source-list-presets.txt"
+assert_file_contains "$TEST_DIR/source-list-presets.txt" "web-api"
+python3 -B "$TEMPLATE_DIR/tools/new-feature.py" preview-only --dry-run > "$TEST_DIR/source-dry-run.txt"
+assert_file_contains "$TEST_DIR/source-dry-run.txt" "DRY-RUN:"
+if python3 -B "$TEMPLATE_DIR/tools/new-feature.py" accidental-spec > "$TEST_DIR/source-refuse-scaffold.txt" 2>&1; then
+    fail "tools/new-feature.py allowed writing into source ai-project-template repository"
+fi
+assert_file_contains "$TEST_DIR/source-refuse-scaffold.txt" "refusing to scaffold feature specs inside the source ai-project-template repository"
 
 echo "PASS: setup installer regression tests"

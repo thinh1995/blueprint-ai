@@ -68,20 +68,20 @@ run_doctor() {
         elif ! ( source "$SRC_DIR/template-paths.sh" ) >/dev/null 2>&1; then
             echo "FAIL manifest: invalid source template-manifest.json. Remediation: inspect template-manifest.json and template-paths.sh." >&2; doctor_status=1
         else
-            src_version="$(python3 -B "$SRC_DIR/tests/installer_lib.py" source-version "$SRC_DIR")"
+            src_version="$(python3 -B "$SRC_DIR/lib/installer_lib.py" source-version "$SRC_DIR")"
             echo "PASS manifest: template-owned (source template); version=$src_version"
         fi
-        python3 -B "$SRC_DIR/tests/installer_lib.py" doctor-source "$SRC_DIR" || doctor_status=1
+        python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-source "$SRC_DIR" || doctor_status=1
     elif [ ! -f "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
         echo "FAIL manifest: a regular template-manifest.json is required. Remediation: run a normal setup, or restore the managed manifest before --update." >&2; doctor_status=1
     else
-        python3 -B "$SRC_DIR/tests/installer_lib.py" doctor-manifest "$DEST_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || doctor_status=1
+        python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-manifest "$DEST_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || doctor_status=1
     fi
 
-    python3 -B "$SRC_DIR/tests/installer_lib.py" doctor-links "$DEST_DIR" || {
+    python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-links "$DEST_DIR" || {
         echo "Remediation: repair the reported Markdown link(s), or rerun setup.sh --update for template-managed documentation." >&2; doctor_status=1
     }
-    python3 -B "$SRC_DIR/tests/installer_lib.py" doctor-spec-readiness "$DEST_DIR" "$SRC_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || {
+    python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-spec-readiness "$DEST_DIR" "$SRC_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || {
         echo "FAIL spec readiness: semantic documentation validation failed. Remediation: resolve [NEEDS CLARIFICATION] markers, open checkboxes, approval frontmatter, or AC traceability mismatches, then rerun 'python3 tools/validate-docs.py'." >&2; doctor_status=1
     }
     if [ "$doctor_status" -eq 0 ]; then echo "Doctor result: READY"; else echo "Doctor result: NOT READY" >&2; fi
@@ -241,7 +241,7 @@ select_update_models() {
         echo "Error: --update requires a regular, template-owned template-manifest.json. Use a normal install for a new project." >&2
         exit 1
     fi
-    if ! update_metadata="$(python3 -B "$SRC_DIR/tests/installer_lib.py" select-update-models "$SRC_DIR" "$DEST_DIR" "$set_models_arg" 2>/dev/null)"; then
+    if ! update_metadata="$(python3 -B "$SRC_DIR/lib/installer_lib.py" select-update-models "$SRC_DIR" "$DEST_DIR" "$set_models_arg" 2>/dev/null)"; then
         echo "Error: --update requires a valid template-owned template-manifest.json." >&2
         exit 1
     fi
@@ -289,7 +289,7 @@ plan_record() {
 
 write_migration_plan() {
     [ -n "$MIGRATION_PLAN" ] || return 0
-    python3 -B "$SRC_DIR/tests/installer_lib.py" write-migration-plan "$PLAN_EVENTS_FILE" "$DEST_DIR/$MIGRATION_PLAN" "$DEST_DIR"
+    python3 -B "$SRC_DIR/lib/installer_lib.py" write-migration-plan "$PLAN_EVENTS_FILE" "$DEST_DIR/$MIGRATION_PLAN" "$DEST_DIR"
     echo "Migration plan: $MIGRATION_PLAN"
 }
 
@@ -305,7 +305,7 @@ prepare_manifest_models() {
         MANIFEST_UPDATE_ALLOWED=false
         return 0
     fi
-    if ! REQUESTED_MODELS="$(python3 -B "$SRC_DIR/tests/installer_lib.py" prepare-manifest-models "$DEST_DIR" "$SELECTED_MODELS" "$SET_MODELS_PROVIDED")"; then
+    if ! REQUESTED_MODELS="$(python3 -B "$SRC_DIR/lib/installer_lib.py" prepare-manifest-models "$DEST_DIR" "$SELECTED_MODELS" "$SET_MODELS_PROVIDED")"; then
         echo "Error: Cannot safely update template-manifest.json selection; use a valid template-owned manifest." >&2
         return 1
     fi
@@ -459,7 +459,7 @@ copy_selected_manifest() {
 
     GENERATED_MANIFEST="$(mktemp "$DEST_DIR/.ai-template-manifest.XXXXXX")"
     cp -Pp "$SRC_DIR/template-manifest.json" "$GENERATED_MANIFEST" || return 1
-    python3 -B "$SRC_DIR/tests/installer_lib.py" write-manifest \
+    python3 -B "$SRC_DIR/lib/installer_lib.py" write-manifest \
         "$SRC_DIR" "$DEST_DIR" "$MANIFEST_BASE" "$GENERATED_MANIFEST" \
         "$REQUESTED_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" \
         "$VALIDATOR_BUNDLE_MANAGED" "$NEW_FEATURE_MANAGED" "$EXPORT_TASKS_MANAGED" \
@@ -515,7 +515,7 @@ migrate_renamed_template_files() {
         IFS='|' read -r old_relative_path new_relative_path expected_sha256 <<< "$mapping"
         old_path="$DEST_DIR/$old_relative_path"
         [ -e "$old_path" ] || [ -L "$old_path" ] || continue
-        python3 -B "$SRC_DIR/tests/installer_lib.py" check-legacy-rename "$DEST_DIR" "$old_relative_path" || continue
+        python3 -B "$SRC_DIR/lib/installer_lib.py" check-legacy-rename "$DEST_DIR" "$old_relative_path" || continue
         if [ -L "$old_path" ]; then
             echo "SKIP (symlink legacy template): $old_relative_path"
             plan_record "preserve" "$old_relative_path" "legacy template is a symlink; resolve manually"
@@ -526,7 +526,7 @@ migrate_renamed_template_files() {
             plan_record "manual" "$old_relative_path" "legacy template is not a regular file"
             continue
         fi
-        if ! python3 -B "$SRC_DIR/tests/installer_lib.py" verify-sha256 "$DEST_DIR" "$old_relative_path" "$expected_sha256"; then
+        if ! python3 -B "$SRC_DIR/lib/installer_lib.py" verify-sha256 "$DEST_DIR" "$old_relative_path" "$expected_sha256"; then
             echo "SKIP (user-modified legacy template): $old_relative_path"
             plan_record "preserve" "$old_relative_path" "user-modified legacy template"
             continue
@@ -579,7 +579,7 @@ prepare_ownership() {
     local ownership_lines line kind val
     SCHEDULED_SKILL_PATHS=(); SKIPPED_USER_SKILL_PATHS=(); PRESERVED_OPTOUT_SKILL_PATHS=()
     PRUNE_FILE_PATHS=(); WARN_MODIFIED_ORPHAN_PATHS=()
-    ownership_lines="$(python3 -B "$SRC_DIR/tests/installer_lib.py" prepare-ownership \
+    ownership_lines="$(python3 -B "$SRC_DIR/lib/installer_lib.py" prepare-ownership \
         "$SRC_DIR" "$DEST_DIR" "$SELECTED_MODELS" "$WITH_SKILLS" "$FORCE" "$UPDATE" "$SET_MODELS_PROVIDED")"
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -657,7 +657,7 @@ done
 
 copy_managed_sdd_tool() {
     if [ "$1" = true ]; then
-        copy_file "$SRC_DIR/tests/$2" "tools/$2"
+        copy_file "$SRC_DIR/tools/$2" "tools/$2"
     else
         echo "SKIP (user-owned tool): tools/$2"
         plan_record "manual" "tools/$2" "user-owned SDD tool will be preserved"
@@ -665,11 +665,11 @@ copy_managed_sdd_tool() {
     fi
 }
 
-copy_file "$SRC_DIR/tests/validate-task-evidence.py" "tools/validate-task-evidence.py"
+copy_file "$SRC_DIR/tools/validate-task-evidence.py" "tools/validate-task-evidence.py"
 copy_file "$SRC_DIR/task-evidence/.gitkeep" "task-evidence/.gitkeep"
 if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
-    copy_file "$SRC_DIR/tests/docs_validation.py" "tools/docs_validation.py"
-    copy_file "$SRC_DIR/tests/validate-project-docs.py" "tools/validate-docs.py"
+    copy_file "$SRC_DIR/tools/docs_validation.py" "tools/docs_validation.py"
+    copy_file "$SRC_DIR/tools/validate-docs.py" "tools/validate-docs.py"
 else
     echo "SKIP (validator bundle conflict): tools/docs_validation.py, tools/validate-docs.py"
     plan_record "manual" "tools/docs_validation.py" "user-owned validator bundle will be preserved"

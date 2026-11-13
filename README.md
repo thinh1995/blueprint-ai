@@ -87,7 +87,7 @@ Dưới đây là trọn vẹn 4 câu chat thực tế từ lúc nêu ý tưởn
 
 ## 3. Directory layout and setup options
 
-Sau khi chạy `setup.sh`, dự án của bạn được bổ sung các thành phần sau *(thư mục `docs/internal/` chỉ nằm ở repo phát triển template gốc, không được cài sang dự án của bạn)*:
+Sau khi chạy `setup.sh`, dự án của bạn được bổ sung các thành phần sau *(các thư mục `docs/internal/`, `lib/` và `tests/` chỉ nằm ở repo phát triển template gốc, không được cài sang dự án của bạn)*:
 
 ```text
 AGENTS.md                          # Hiến pháp gốc điều hướng mọi AI Agent
@@ -192,7 +192,7 @@ bash tests/setup.sh < /dev/null
 bash tests/validate-docs.sh
 bash setup.sh --doctor
 python3 -B tests/validate-antigravity-conformance-fixture.py
-python3 -B tests/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
+python3 -B tools/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
 bash tests/render-mermaid.sh --extract-only
 ```
 

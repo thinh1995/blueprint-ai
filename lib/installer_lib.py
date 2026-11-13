@@ -122,11 +122,6 @@ ALL_SKILL_PATHS: set[str] = {
 }
 
 SOURCE_OVERRIDES: dict[str, str] = {
-    "tools/validate-task-evidence.py": "tests/validate-task-evidence.py",
-    "tools/docs_validation.py": "tests/docs_validation.py",
-    "tools/validate-docs.py": "tests/validate-project-docs.py",
-    "tools/new-feature.py": "tests/new-feature.py",
-    "tools/export-tasks.py": "tests/export-tasks.py",
     ".agents/AGENTS.md": "AGENTS.md",
     ".cursor/rules/agents.mdc": "adapters/cursor-agents.mdc",
     ".github/copilot-instructions.md": "adapters/copilot-instructions.md",
@@ -141,13 +136,22 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
     "CLAUDE.md": {"dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a"},
     "GEMINI.md": {"7277122704187512c0cec801eeb99c4f92668a04e63a36c77fd680d5f0acb45b"},
     "QWEN.md": {"b799d01b4909119a3da308a805cb158a05aee07fa61d3d0a1a35940e50683d51"},
-    "skills/sdd-docs/SKILL.md": {"4ff7e524649180e017f0069acd525506619310619744f72e3dc92c57dd569afb"},
+    "skills/sdd-docs/SKILL.md": {
+        "4ff7e524649180e017f0069acd525506619310619744f72e3dc92c57dd569afb",
+        "c7fcdd2670ea4fde6656fa1e337beeec0311a7bc307ed0e3222ecbdeeb64a7c6",
+    },
     "skills/sdd-specify/SKILL.md": {"3595f0930d4864be24271edfb0c3a084898726d22d76950751d034940abeb034"},
     "skills/sdd-clarify/SKILL.md": {"e4ac7aa24dbfa92ba40214cac370879aff2f5404784cca71367011110878a2ab"},
     "skills/sdd-plan/SKILL.md": {"1ac4e8e54d29a9448f23b2892836a7b4a339a865e65e787456b556c60880824a"},
     "skills/sdd-tasks/SKILL.md": {"e5a3c2a081f52ab63333fa511de50759bd21968ea841d81963ef162d649da1ef"},
     "skills/sdd-analyze/SKILL.md": {"39cf981dc3547d01c2c4ced0c0c7fce839369a7b932c57fc92df41a586676306"},
-    "skills/sdd-implement/SKILL.md": {"9d8b5b678fb4e55e1c5f2062080dbe2b21e47e54992c07d97d3b7a84ad14a2ac"},
+    "skills/sdd-implement/SKILL.md": {
+        "9d8b5b678fb4e55e1c5f2062080dbe2b21e47e54992c07d97d3b7a84ad14a2ac",
+        "c093e6656692fa32ad8f9bfabef0e172cde369e3aa4f81beb204effa873f16cb",
+    },
+    "skills/sdd-fix/SKILL.md": {
+        "ab237567af83c3ab2783921561928614605a9618a8111714a2ce1861ecdb4535",
+    },
 }
 
 DOCTOR_LINK_SKIP_DIRS = {
@@ -486,12 +490,12 @@ def cmd_doctor_source(args: list[str]) -> int:
         print("PASS adapters: static runtime adapters and system-prompt template delegate to AGENTS.md")
 
     source_tools = (
-        "tests/installer_lib.py",
-        "tests/validate-task-evidence.py",
-        "tests/docs_validation.py",
-        "tests/validate-project-docs.py",
-        "tests/new-feature.py",
-        "tests/export-tasks.py",
+        "lib/installer_lib.py",
+        "tools/validate-task-evidence.py",
+        "tools/docs_validation.py",
+        "tools/validate-docs.py",
+        "tools/new-feature.py",
+        "tools/export-tasks.py",
     )
     tools_ok = True
     for rel in source_tools:
@@ -505,7 +509,7 @@ def cmd_doctor_source(args: list[str]) -> int:
             status = 1
             tools_ok = False
     if tools_ok:
-        print("PASS tools: source SDD and validation scripts verified in tests/")
+        print("PASS tools: source SDD and validation scripts verified in tools/ and lib/")
 
     skills_dir = src_dir / "skills"
     skill_err: str | None = None
@@ -938,8 +942,8 @@ def cmd_doctor_spec_readiness(args: list[str]) -> int:
     validator_dir: Path | None = None
     if dest_dir == src_dir:
         try:
-            read_regular_bytes_nofollow(src_dir, "tests/docs_validation.py")
-            validator_dir = src_dir / "tests"
+            read_regular_bytes_nofollow(src_dir, "tools/docs_validation.py")
+            validator_dir = src_dir / "tools"
         except ValueError:
             return 0
     else:

@@ -9,7 +9,12 @@ from pathlib import Path
 # Validation is read-only; avoid creating __pycache__ artifacts in the template.
 sys.dont_write_bytecode = True
 
-from docs_validation import (
+ROOT = Path(__file__).resolve().parent.parent
+TOOLS_DIR = ROOT / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from docs_validation import (  # noqa: E402
     read,
     validate_clarify_gate,
     validate_feature_folder,
@@ -17,7 +22,6 @@ from docs_validation import (
     validate_mermaid,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 CURRENT = DOCS / "current"
 TEMPLATES = DOCS / "templates"

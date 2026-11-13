@@ -5,12 +5,12 @@
 TEMPLATE_PATHS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 validate_template_manifest() {
-    python3 -B "$TEMPLATE_PATHS_DIR/tests/installer_lib.py" validate-source-manifest "$TEMPLATE_PATHS_DIR"
+    python3 -B "$TEMPLATE_PATHS_DIR/lib/installer_lib.py" validate-source-manifest "$TEMPLATE_PATHS_DIR"
 }
 
 load_profile_paths() {
     local profile="$1"
-    python3 -B "$TEMPLATE_PATHS_DIR/tests/installer_lib.py" load-profile-paths "$TEMPLATE_PATHS_DIR/template-manifest.json" "$profile"
+    python3 -B "$TEMPLATE_PATHS_DIR/lib/installer_lib.py" load-profile-paths "$TEMPLATE_PATHS_DIR/template-manifest.json" "$profile"
 }
 
 load_paths_into_array() {

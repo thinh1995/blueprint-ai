@@ -62,7 +62,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 root_dir = Path(sys.argv[1]).resolve()
 work_dir = Path(sys.argv[2]).resolve()
-sys.path.insert(0, str(root_dir / "tests"))
+sys.path.insert(0, str(root_dir / "tools"))
 
 from docs_validation import extract_mermaid_blocks, read_markdown  # noqa: E402
 

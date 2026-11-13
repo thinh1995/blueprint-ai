@@ -75,6 +75,10 @@ require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update
 require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
 require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
 require_text ".github/workflows/ai-template-validation.yml" "node-version: 22.14.0"
+require_text ".github/workflows/ai-template-validation.yml" "workflow_dispatch:"
+require_text ".github/workflows/ai-template-validation.yml" "concurrency:"
+require_text ".github/workflows/ai-template-validation.yml" "bash setup.sh --doctor"
+require_text ".github/workflows/ai-template-validation.yml" "tools/validate-task-evidence.py"
 require_text "README.md" "--dry-run --update"
 require_text "docs/current/00 - Onboarding/1. Setup Guide.md" "RECOVERY.md"
 python3 -B "$ROOT_DIR/tests/validate-template-docs.py"
@@ -84,7 +88,7 @@ python3 -B "$ROOT_DIR/tests/validate-orchestration-contract.py"
 python3 -B "$ROOT_DIR/tests/validate-runtime-delegation-fixture.py"
 python3 -B "$ROOT_DIR/tests/validate-antigravity-conformance-fixture.py"
 
-python3 -B - "$ROOT_DIR/tests" "$ROOT_DIR" <<'PY'
+python3 -B - "$ROOT_DIR/tools" "$ROOT_DIR" <<'PY'
 import hashlib
 import json
 import shutil
@@ -94,9 +98,9 @@ import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-tests_dir = Path(sys.argv[1]).resolve()
+tools_src_dir = Path(sys.argv[1]).resolve()
 repo_root = Path(sys.argv[2]).resolve()
-sys.path.insert(0, str(tests_dir))
+sys.path.insert(0, str(tools_src_dir))
 
 from docs_validation import (
     validate_clarify_gate,
@@ -426,11 +430,11 @@ with tempfile.TemporaryDirectory() as tmp:
     expect_fail(lambda: validate_feature_folder(root, bad_tasks), "overlapping [P] Owned paths", "overlap")
     shutil.rmtree(bad_tasks)
 
-    # CLI check for validate-project-docs.py --require-tasks --strict
+    # CLI check for tools/validate-docs.py --require-tasks --strict
     tools = root / "tools"
     tools.mkdir()
-    (tools / "docs_validation.py").write_text((tests_dir / "docs_validation.py").read_text(encoding="utf-8"), encoding="utf-8")
-    (tools / "validate-docs.py").write_text((tests_dir / "validate-project-docs.py").read_text(encoding="utf-8"), encoding="utf-8")
+    (tools / "docs_validation.py").write_text((tools_src_dir / "docs_validation.py").read_text(encoding="utf-8"), encoding="utf-8")
+    (tools / "validate-docs.py").write_text((tools_src_dir / "validate-docs.py").read_text(encoding="utf-8"), encoding="utf-8")
     subprocess.run([sys.executable, "-B", str(tools / "validate-docs.py"), "--require-tasks"], check=True, stdout=subprocess.DEVNULL)
 
 # 6. Git-backed earliest-approved-commit tampering check + validate-task-evidence.py security unit tests
@@ -485,7 +489,7 @@ with tempfile.TemporaryDirectory() as git_tmp:
     gtools = groot / "tools"
     gtools.mkdir()
     ev_validator = gtools / "validate-task-evidence.py"
-    ev_validator.write_text((tests_dir / "validate-task-evidence.py").read_text(encoding="utf-8"), encoding="utf-8")
+    ev_validator.write_text((tools_src_dir / "validate-task-evidence.py").read_text(encoding="utf-8"), encoding="utf-8")
     ev_dir = groot / "task-evidence"
     ev_dir.mkdir()
     art_sha = hashlib.sha256((groot / "artifact.txt").read_bytes()).hexdigest()

@@ -71,6 +71,24 @@ def ensure_no_symlinks(root: Path, rel_parts: tuple[str, ...], must_exist: bool 
     return cur
 
 
+def is_source_template_repository(root: Path) -> bool:
+    manifest_path = root / "template-manifest.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        return False
+    if not (root / "lib" / "installer_lib.py").is_file() or not (root / "docs" / "internal").is_dir():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(manifest, dict)
+        and manifest.get("template") == "ai-agent-obsidian-project-template"
+        and "requested_models" not in manifest
+        and "selected_models" not in manifest
+    )
+
+
 def resolve_preset_name(cli_preset: str | None) -> str:
     if cli_preset is not None:
         if not SLUG_RE.fullmatch(cli_preset):
@@ -785,6 +803,12 @@ def main(argv: list[str] | None = None) -> int:
         for filename, _content in ordered_files:
             print(f"  {rel_target_dir}/{filename}")
         return 0
+
+    if is_source_template_repository(ROOT):
+        fail(
+            "refusing to scaffold feature specs inside the source ai-project-template repository "
+            "(install into a target project first, or pass --dry-run to preview)"
+        )
 
     target_dir.mkdir(parents=False, exist_ok=False)
     try:

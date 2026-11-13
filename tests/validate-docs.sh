@@ -73,7 +73,8 @@ require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update
 require_text "docs/internal/acceptance-matrices/V3_ACCEPTANCE_MATRIX.md" 'Release target: `0.3.0`'
 require_text "docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md" "tools/validate-docs.py"
 require_text ".github/workflows/ai-template-validation.yml" "fetch-depth: 0"
-require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+require_text ".github/workflows/ai-template-validation.yml" "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+require_text ".github/workflows/ai-template-validation.yml" "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
 require_text ".github/workflows/ai-template-validation.yml" "node-version: 22.14.0"
 require_text ".github/workflows/ai-template-validation.yml" "workflow_dispatch:"
 require_text ".github/workflows/ai-template-validation.yml" "concurrency:"

@@ -41,7 +41,7 @@ Installs the AI agent rules and Obsidian starter vault into the current director
   --interactive          Prompt for runtime selection even when stdin is not a TTY.
   --models LIST          Additive runtimes: claude,antigravity,qwen,opencode,codex,cursor,copilot,gemma,all.
   --set-models LIST      Authoritative runtime set; backs up & prunes deselected managed adapters/skills.
-  --preset NAME          Default feature preset (general, web-api, cli-tool, ai-agent, or custom slug).
+  --preset NAME          Default feature preset (general, web-api, cli-tool, ai-agent, security-hardening, or custom slug).
 EOF
 }
 
@@ -82,7 +82,7 @@ run_doctor() {
         echo "Remediation: repair the reported Markdown link(s), or rerun setup.sh --update for template-managed documentation." >&2; doctor_status=1
     }
     python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-spec-readiness "$DEST_DIR" "$SRC_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || {
-        echo "FAIL spec readiness: semantic documentation validation failed. Remediation: resolve [NEEDS CLARIFICATION] markers, open checkboxes, approval frontmatter, or AC traceability mismatches, then rerun 'python3 tools/validate-docs.py'." >&2; doctor_status=1
+        echo "FAIL spec readiness: semantic documentation validation failed. Remediation: resolve [NEEDS CLARIFICATION] markers, open checkboxes, approval/superseded_by frontmatter, redacted triage table checks, or AC traceability mismatches, then rerun 'python3 tools/validate-docs.py'." >&2; doctor_status=1
     }
     if [ "$doctor_status" -eq 0 ]; then echo "Doctor result: READY"; else echo "Doctor result: NOT READY" >&2; fi
     return "$doctor_status"
@@ -257,7 +257,7 @@ validate_preset_option() {
     local current_path="$DEST_DIR" part
     [ "$PRESET_OPTION_PROVIDED" = true ] || return 0
     [[ "$PRESET_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "Error: Invalid --preset '$PRESET_NAME'. Expected lowercase kebab-case slug." >&2; exit 1; }
-    case "$PRESET_NAME" in general|web-api|cli-tool|ai-agent) return 0 ;; esac
+    case "$PRESET_NAME" in general|web-api|cli-tool|ai-agent|security-hardening) return 0 ;; esac
     for part in "docs" "templates" "presets" "$PRESET_NAME"; do
         current_path="$current_path/$part"
         if [ -L "$current_path" ] || [ ! -d "$current_path" ]; then

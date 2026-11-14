@@ -411,7 +411,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--allow-draft",
         action="store_true",
-        help="Allow exporting tasks when frontmatter status is not 'approved'.",
+        help="Allow exporting draft/example tasks when frontmatter status is not 'approved' (never overrides superseded or archived).",
     )
     parser.add_argument(
         "--apply-gh",
@@ -492,6 +492,10 @@ def main(argv: list[str] | None = None) -> int:
     fm_status = fm.get("status", "").strip().lower()
     if not fm_status:
         fail(f"{source_rel}: missing frontmatter 'status'")
+    if fm_status in {"superseded", "archived"}:
+        sup_by = fm.get("superseded_by", "").strip()
+        sup_hint = f" (superseded_by: {sup_by})" if sup_by else ""
+        fail(f"{source_rel}: refusing to export {fm_status} tasks{sup_hint}")
     if fm_status != "approved" and not args.allow_draft:
         fail(
             f"{source_rel}: refusing to export unapproved tasks (status: {fm_status}); "
@@ -506,6 +510,12 @@ def main(argv: list[str] | None = None) -> int:
     for pf in pack_files:
         if pf.is_symlink():
             fail(f"symlink refused: {pf.relative_to(ROOT).as_posix()}")
+        pf_fm = dv_parse_frontmatter(read_markdown(pf))
+        pf_status = pf_fm.get("status", "").strip().lower()
+        if pf_status in {"superseded", "archived"}:
+            pf_sup = pf_fm.get("superseded_by", "").strip()
+            pf_hint = f" (superseded_by: {pf_sup})" if pf_sup else ""
+            fail(f"{pf.relative_to(ROOT).as_posix()}: refusing to export {pf_status} feature pack{pf_hint}")
 
     try:
         if not args.allow_draft:

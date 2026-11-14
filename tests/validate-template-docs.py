@@ -103,10 +103,18 @@ def main() -> None:
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "BẮT BUỘC tạo")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/mini-spec-template/")
+    require_text(CURRENT / "05 - Product Features/README.md", "## Anti-fragmentation and supersession lifecycle")
+    require_text(CURRENT / "02 - Architecture/Architecture.md", "## Brownfield security and tech-debt triage")
+    require_text(
+        CURRENT / "06 - Infrastructure & Deployment/Infrastructure Spec.md",
+        "Secrets management and security scanning",
+    )
+    require_text(ROOT / "AGENTS.md", "--supersede")
+    require_text(ROOT / "AGENTS.md", "superseded_by")
     require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "/sdd-docs")
 
-    for readme_token in ("/sdd-docs", "/sdd-specify", "/sdd-fix", "--without-skills", "--set-models"):
+    for readme_token in ("/sdd-docs", "/sdd-specify", "/sdd-fix", "--without-skills", "--set-models", "security-hardening"):
         require_text(ROOT / "README.md", readme_token)
 
     sdd_prompts = read(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md")

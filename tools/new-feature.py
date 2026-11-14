@@ -18,7 +18,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SEQ_PREFIX_RE = re.compile(r"^(\d{3})-")
 FRONTMATTER_RE = re.compile(r"\A(---\r?\n)(.*?)(\r?\n---(?:\r?\n|\Z))", re.S)
 APPROVAL_FIELD_RE = re.compile(
-    r"^(approved_by|approved_at|approval_evidence|source_revision):[ \t]*.*$",
+    r"^(approved_by|approved_at|approval_evidence|source_revision|superseded_by|supersedes):[ \t]*.*$",
     re.M,
 )
 
@@ -35,6 +35,7 @@ BUILTIN_PRESETS = (
     "web-api",
     "cli-tool",
     "ai-agent",
+    "security-hardening",
 )
 
 AI_ADDENDUM_ROWS = (
@@ -511,6 +512,74 @@ def apply_builtin_overlay(preset_name: str, docs: dict[str, str]) -> dict[str, s
             ],
         )
 
+    elif preset_name == "security-hardening":
+        tech = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Ranh giới tin cậy (trust boundaries), xác thực/phân quyền, cô lập tenant, quản lý khoá bí mật, lọc dữ liệu nhạy cảm trên log và phụ thuộc bên ngoài.",
+            tech,
+            "2. Tech Spec.md blast-radius bullet",
+        )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "API / event contract and versioning",
+            "Xác định ranh giới xác thực/phân quyền (authn/authz), kiểm tra đầu vào nghiêm ngặt, rate-limit và mã lỗi không làm lộ thông tin nội bộ.",
+            "engineering",
+        )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "Schema or data migration",
+            "Xác định mã hoá dữ liệu nhạy cảm, xoay vòng khoá/token tương thích ngược và kịch bản backfill/rollback an toàn.",
+            "engineering",
+        )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "Observability (logs, metrics, alerts)",
+            "Đảm bảo che giấu (redact) secret/token/PII trên toàn bộ log/trace, bổ sung audit log và cảnh báo hành vi bất thường.",
+            "engineering",
+        )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "Deployment and rollback plan",
+            "Xác định trình tự triển khai bản vá bảo mật, xoay vòng/thu hồi thông tin xác thực an toàn và phương án rollback tức thời.",
+            "engineering",
+        )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "Dependencies / third-party failure mode",
+            "Ghim phiên bản phụ thuộc an toàn, cổng quét SCA/SAST/secret trên CI và chế độ đóng an toàn (fail-closed) khi dịch vụ xác thực lỗi.",
+            "engineering",
+        )
+        for ai_row in AI_ADDENDUM_ROWS:
+            tech = replace_table_row_by_first_cell(
+                tech, ai_row, "Không áp dụng (preset security-hardening; điền chi tiết nếu phạm vi có thành phần AI Agent).", "n/a"
+            )
+        tech = replace_table_row_by_first_cell(
+            tech,
+            "AC-01",
+            "Gia cố kiểm soát truy cập/cô lập tenant, xác thực đầu vào chống injection, che giấu secret/PII và đóng mã SEC-xx liên quan.",
+            "`pytest tests/security/`",
+        )
+
+        qa = replace_qa_rows(
+            qa,
+            preconditions="Môi trường local/dev cô lập với tài khoản đa vai trò/đa tenant và dữ liệu kiểm thử giả lập (không dùng secret thật).",
+            steps="Thực thi kiểm thử leo thang đặc quyền (IDOR/chéo tenant), payload biên/injection, xác minh che giấu secret/PII trong log và kịch bản fail-closed.",
+            expected="Mọi truy cập trái phép hoặc payload độc hại bị chặn tất định (401/403/400); không rò rỉ dữ liệu chéo tenant hay secret trong phản hồi/log.",
+            automated="yes",
+            test_cmd="`pytest tests/security/`",
+            extra_edge_bullets=[
+                "Preset security-hardening: kiểm thử chống leo thang đặc quyền & IDOR chéo tenant, chặn injection/traversal, xác minh che giấu secret/PII trên log và hành vi fail-closed.",
+            ],
+        )
+
+        tasks = replace_execution_task_rows(
+            tasks,
+            [
+                "| T-01 | todo | no | - | AC-01 | `src/security/` | Gia cố ranh giới xác thực/phân quyền, kiểm tra đầu vào an toàn và bộ lọc che giấu secret/PII trên log. | `pytest tests/security/test_controls.py` |",
+                "| T-02 | todo | no | T-01 | AC-01 | `tests/security/` | Bổ sung kiểm thử hồi quy bảo mật cho các ca lạm dụng, cô lập tenant và đối chiếu đóng mã SEC-xx. | `pytest tests/security/` |",
+            ],
+        )
+
     docs["2. Tech Spec.md"] = tech
     docs["3. QA Spec.md"] = qa
     docs["4. Tasks.md"] = tasks
@@ -563,11 +632,25 @@ def apply_builtin_mini_overlay(preset_name: str, mini_text: str) -> str:
             ],
             spec_label=MINI_SPEC_NAME,
         )
+    elif preset_name == "security-hardening":
+        mini_text = sub_once_required(
+            BLAST_ANCHOR_RE,
+            r"\1 Ranh giới xác thực/phân quyền, kiểm tra đầu vào chống injection, cô lập tenant và che giấu secret/PII trên log.",
+            mini_text,
+            "1. Mini Spec.md blast-radius bullet",
+        )
+        mini_text = replace_execution_task_rows(
+            mini_text,
+            [
+                "| T-01 | todo | no | - | AC-01 | `src/security/` | Gia cố kiểm soát bảo mật, che giấu secret/PII trên log, kiểm thử hồi quy chống lạm dụng và đóng mã SEC-xx liên quan. | `pytest tests/security/` |",
+            ],
+            spec_label=MINI_SPEC_NAME,
+        )
 
     return mini_text
 
 
-def hydrate_spec_content(content: str, title: str) -> str:
+def hydrate_spec_content(content: str, title: str, supersede_folder: str | None = None) -> str:
     hydrated = content.replace("[Feature name]", title)
     match = FRONTMATTER_RE.match(hydrated)
     if match:
@@ -576,8 +659,62 @@ def hydrate_spec_content(content: str, title: str) -> str:
         status_val = status_match.group(1).strip().strip("'\"").lower() if status_match else ""
         if status_val == "draft":
             fm_body = APPROVAL_FIELD_RE.sub(r"\1:", fm_body)
-            hydrated = fm_open + fm_body + fm_close + hydrated[match.end() :]
+        if supersede_folder:
+            sup_line = f'supersedes: "05 - Product Features/{supersede_folder}"'
+            if re.search(r"^supersedes:[ \t]*.*$", fm_body, re.M):
+                fm_body = re.sub(r"^supersedes:[ \t]*.*$", lambda _m: sup_line, fm_body, count=1, flags=re.M)
+            elif re.search(r"^status:[ \t]*.*$", fm_body, re.M):
+                fm_body = re.sub(
+                    r"^(status:[ \t]*.*)$",
+                    lambda m: f"{m.group(1)}\n{sup_line}",
+                    fm_body,
+                    count=1,
+                    flags=re.M,
+                )
+            else:
+                fm_body = f"{sup_line}\n{fm_body}"
+        hydrated = fm_open + fm_body + fm_close + hydrated[match.end() :]
     return hydrated
+
+
+def _extract_top_level_status(markdown_text: str) -> str:
+    normalized = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    match = re.match(r"^---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|$)", normalized, re.S)
+    if not match:
+        return ""
+    for line in (match.group(1) or "").split("\n"):
+        if line.startswith((" ", "\t")):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("status:"):
+            val = line.split(":", 1)[1].strip()
+            val = re.split(r"[ \t]+#", val, maxsplit=1)[0].strip().strip("'\"")
+            return val.lower()
+    return ""
+
+
+def _is_inactive_feature_dir(entry: Path) -> bool:
+    spec_paths: list[Path] = []
+    for name in (MINI_SPEC_NAME, *CANONICAL_SPECS):
+        cand = entry / name
+        if cand.is_symlink():
+            return False
+        if cand.is_file():
+            spec_paths.append(cand)
+    if not spec_paths:
+        return False
+    return all(
+        _extract_top_level_status(p.read_text(encoding="utf-8-sig")) in {"superseded", "archived"}
+        for p in spec_paths
+    )
+
+
+def _print_supersede_reminder(supersede_folder: str | None) -> None:
+    if supersede_folder:
+        print(
+            f"REMINDER: '05 - Product Features/{supersede_folder}' remains active until '/sdd-analyze' "
+            "atomically stamps status: superseded and superseded_by after explicit user approval."
+        )
 
 
 def write_new_file_exclusive(path: Path, content: str) -> None:
@@ -630,7 +767,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--preset",
-        help="Built-in preset (general, web-api, cli-tool, ai-agent) or custom preset under docs/templates/presets/<name>.",
+        help="Built-in preset (general, web-api, cli-tool, ai-agent, security-hardening) or custom preset under docs/templates/presets/<name>.",
+    )
+    parser.add_argument(
+        "--supersede",
+        metavar="EXISTING_FOLDER",
+        help="Promote or replace an existing feature folder under docs/current/05 - Product Features/<folder> (records frontmatter supersedes and allocates next NNN- prefix).",
     )
     parser.add_argument(
         "--plain",
@@ -691,6 +833,43 @@ def main(argv: list[str] | None = None) -> int:
     if not features_root.is_dir():
         fail("docs/current/05 - Product Features is not a directory")
 
+    supersede_folder: str | None = None
+    if args.supersede is not None:
+        raw_sup = args.supersede.strip()
+        if (
+            not raw_sup
+            or raw_sup in {".", ".."}
+            or "/" in raw_sup
+            or "\\" in raw_sup
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in raw_sup)
+        ):
+            fail(
+                f"invalid --supersede '{args.supersede}' "
+                "(expected existing folder name inside docs/current/05 - Product Features/)"
+            )
+        sup_dir = ensure_no_symlinks(
+            ROOT, ("docs", "current", "05 - Product Features", raw_sup), must_exist=True
+        )
+        if not sup_dir.is_dir():
+            fail(f"--supersede target is not a directory: docs/current/05 - Product Features/{raw_sup}")
+        has_spec = False
+        for spec_cand_name in (MINI_SPEC_NAME, *CANONICAL_SPECS):
+            spec_cand = sup_dir / spec_cand_name
+            if spec_cand.is_symlink():
+                fail(f"symlink refused inside --supersede target '{raw_sup}': {spec_cand_name}")
+            if spec_cand.is_file():
+                has_spec = True
+        if not has_spec:
+            fail(f"--supersede target contains no canonical or Mini-Spec files: {raw_sup}")
+        if _is_inactive_feature_dir(sup_dir):
+            fail(
+                f"--supersede target '{raw_sup}' is already superseded or archived; "
+                "supersede the active successor pack instead"
+            )
+        if args.plain and slug == raw_sup:
+            fail(f"--plain cannot reuse exact folder name '{slug}' when superseding '{raw_sup}'")
+        supersede_folder = raw_sup
+
     presets_root = ensure_no_symlinks(ROOT, ("docs", "templates", "presets"), must_exist=False)
     if presets_root.exists() and not presets_root.is_dir():
         fail("docs/templates/presets exists and is not a directory")
@@ -721,11 +900,12 @@ def main(argv: list[str] | None = None) -> int:
                     or not _readme_references_four_file_pack(custom_map["README.md"])
                 ):
                     ordered_files.append(("README.md", hydrate_spec_content(custom_map["README.md"], title)))
-                ordered_files.append((MINI_SPEC_NAME, hydrate_spec_content(mini_body, title)))
             else:
                 _require_builtin_preset(preset_name)
-                overlaid_mini = apply_builtin_mini_overlay(preset_name, base_mini)
-                ordered_files.append((MINI_SPEC_NAME, hydrate_spec_content(overlaid_mini, title)))
+                mini_body = apply_builtin_mini_overlay(preset_name, base_mini)
+            ordered_files.append(
+                (MINI_SPEC_NAME, hydrate_spec_content(mini_body, title, supersede_folder=supersede_folder))
+            )
         else:
             template_dir = ensure_no_symlinks(
                 ROOT, ("docs", "templates", "feature-spec-template"), must_exist=True
@@ -752,7 +932,9 @@ def main(argv: list[str] | None = None) -> int:
                 if "README.md" in custom_map:
                     ordered_files.append(("README.md", hydrate_spec_content(custom_map["README.md"], title)))
                 for spec_name in CANONICAL_SPECS:
-                    ordered_files.append((spec_name, hydrate_spec_content(merged[spec_name], title)))
+                    ordered_files.append(
+                        (spec_name, hydrate_spec_content(merged[spec_name], title, supersede_folder=supersede_folder))
+                    )
                 for extra_name in sorted(custom_map):
                     if extra_name not in CANONICAL_SPECS and extra_name not in {"README.md", MINI_SPEC_NAME}:
                         ordered_files.append((extra_name, hydrate_spec_content(custom_map[extra_name], title)))
@@ -760,7 +942,9 @@ def main(argv: list[str] | None = None) -> int:
                 _require_builtin_preset(preset_name)
                 overlaid = apply_builtin_overlay(preset_name, dict(base_docs))
                 for spec_name in CANONICAL_SPECS:
-                    ordered_files.append((spec_name, hydrate_spec_content(overlaid[spec_name], title)))
+                    ordered_files.append(
+                        (spec_name, hydrate_spec_content(overlaid[spec_name], title, supersede_folder=supersede_folder))
+                    )
     except ValueError as exc:
         fail(str(exc))
 
@@ -774,7 +958,13 @@ def main(argv: list[str] | None = None) -> int:
         if not entry.is_dir():
             continue
         base_slug = SEQ_PREFIX_RE.sub("", entry.name)
-        if entry.name == slug or base_slug == slug or base_slug == requested_base_slug:
+        is_allowed_supersede = (
+            (supersede_folder is not None and entry.name == supersede_folder)
+            or _is_inactive_feature_dir(entry)
+        ) and not (args.plain and entry.name == slug)
+        if not is_allowed_supersede and (
+            entry.name == slug or base_slug == slug or base_slug == requested_base_slug
+        ):
             fail(f"duplicate feature slug '{slug}' (conflicts with existing '{entry.name}')")
         seq_match = SEQ_PREFIX_RE.match(entry.name)
         if seq_match:
@@ -802,6 +992,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"DRY-RUN: would scaffold {rel_target_dir} (preset: {preset_name}, title: {title})")
         for filename, _content in ordered_files:
             print(f"  {rel_target_dir}/{filename}")
+        _print_supersede_reminder(supersede_folder)
         return 0
 
     if is_source_template_repository(ROOT):
@@ -827,6 +1018,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
     print(f"OK: scaffolded {rel_target_dir} (preset: {preset_name}, files: {len(ordered_files)})")
+    _print_supersede_reminder(supersede_folder)
     return 0
 
 

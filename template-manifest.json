@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "skills_enabled": true,
   "managed_profiles": ["core"],
   "managed_paths": [

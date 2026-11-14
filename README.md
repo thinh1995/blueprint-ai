@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.6.0`. See [V6 Acceptance Matrix](docs/internal/acceptance-matrices/V6_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.6.1`. See [V6.1 Acceptance Matrix](docs/internal/acceptance-matrices/V6_1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 > **Dành cho người mới — Bộ khung này là gì?**
 > Đây **không phải** là thư viện mã nguồn (như gói `npm` hay `pip`), mà là **bộ quy tắc điều phối chuẩn cho AI Agent kết hợp kho tài liệu dự án Docs-as-Code (GitHub + Obsidian)**. Khi cài đặt vào dự án của bạn, bộ khung giải quyết triệt để 3 bài toán lớn khi lập trình cùng AI:
@@ -46,7 +46,7 @@ bash ~/ai-project-template/setup.sh --doctor
 git add . && git commit -m "chore: install ai-project-template"
 ```
 
-> **An toàn tuyệt đối cho dự án đang chạy:** Mặc định `setup.sh` **không bao giờ ghi đè** bất kỳ file nào đã có sẵn trong dự án của bạn. Bạn có thể chọn `--preset` là `general` (mặc định), `web-api`, `cli-tool` hoặc `ai-agent`.
+> **An toàn tuyệt đối cho dự án đang chạy:** Mặc định `setup.sh` **không bao giờ ghi đè** bất kỳ file nào đã có sẵn trong dự án của bạn. Bạn có thể chọn `--preset` là `general` (mặc định), `web-api`, `cli-tool`, `ai-agent` hoặc `security-hardening`.
 
 ### Step 2: Bootstrap project documentation
 
@@ -114,7 +114,7 @@ docs/
 |---|---|
 | `--dry-run` | Xem trước danh sách file sẽ tạo/cập nhật/gỡ bỏ mà không ghi xuống ổ đĩa. |
 | `--interactive` | Luôn hiển thị menu chọn `1..8` runtime kể cả khi chạy qua script không tương tác. |
-| `--preset <name>` | Đặt `default_preset` mặc định (`general`, `web-api`, `cli-tool`, `ai-agent` hoặc thư mục tuỳ biến trong `docs/templates/presets/<name>/`). |
+| `--preset <name>` | Đặt `default_preset` mặc định (`general`, `web-api`, `cli-tool`, `ai-agent`, `security-hardening` hoặc thư mục tuỳ biến trong `docs/templates/presets/<name>/`). |
 | `--models <list>` | Chọn cài đặt và cộng dồn công cụ AI runtime (`claude`, `antigravity`, `qwen`, `opencode`, `codex`, `cursor`, `copilot`, `gemma` hoặc `all`). Xem chi tiết tại [5. Model Runtime Instructions](docs/current/00%20-%20Onboarding/5.%20Model%20Runtime%20Instructions.md). |
 | `--set-models <list>` | Thay thế chính xác tập runtime đang quản lý (sao lưu & gỡ sạch các adapter/skill cũ do template quản lý không còn nằm trong danh sách mới, vẫn giữ nguyên file người dùng tự sửa). |
 | `--without-skills` | Bỏ qua việc cài đặt 8 kỹ năng `/sdd-*` và lưu `"skills_enabled": false` vào `template-manifest.json`. |

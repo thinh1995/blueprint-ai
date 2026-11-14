@@ -1,0 +1,65 @@
+# v0.6.1 Verification Suite Log (branch: v0.6.1, base HEAD: d7116bd12617c145818bd79c89a4d60c1cfeb535)
+# Environment: local/dev | PYTHONDONTWRITEBYTECODE=1 | Path normalization: $PWD -> <REPO_ROOT>
+
+=== 1: bash -n setup.sh template-paths.sh tests/setup.sh tests/validate-docs.sh tests/render-mermaid.sh ===
+[exit_code=0]
+
+=== 2a: wc -l setup.sh ===
+     734 setup.sh
+[exit_code=0]
+
+=== 2b: wc -c skills/sdd-*/SKILL.md ===
+    3874 skills/sdd-analyze/SKILL.md
+    3526 skills/sdd-clarify/SKILL.md
+    3637 skills/sdd-docs/SKILL.md
+    3712 skills/sdd-fix/SKILL.md
+    3891 skills/sdd-implement/SKILL.md
+    3655 skills/sdd-plan/SKILL.md
+    3769 skills/sdd-specify/SKILL.md
+    3464 skills/sdd-tasks/SKILL.md
+   29528 total
+[exit_code=0]
+
+=== 3: bash tests/validate-docs.sh ===
+PASS: template documentation, links, Mermaid structure, and traceability
+PASS: canonical SDD skill contracts verified
+PASS: validate-skills-contract self-test verified
+PASS: documentation sub-agent orchestration contract
+PASS: runtime delegation evidence schema fixture
+PASS: Antigravity CLI conformance fixture
+PASS: semantic Clarify gate, Mini-Spec, Git tampering, URI/embed, task-evidence, and [P] concurrency fixtures
+PASS: documentation guardrail validation
+[exit_code=0]
+
+=== 4: bash tests/setup.sh < /dev/null ===
+PASS: downstream documentation links and Mermaid structure
+PASS: task evidence and inventory validation
+PASS: setup installer regression tests
+[exit_code=0]
+
+=== 5: bash setup.sh --doctor ===
+AI template doctor: <REPO_ROOT>
+PASS Bash: 3.2.57(1)-release
+PASS Python: Python 3.12.3
+PASS policy: AGENTS.md is a regular canonical policy file
+PASS manifest: template-owned (source template); version=0.6.1
+PASS adapters: static runtime adapters and system-prompt template delegate to AGENTS.md
+PASS tools: source SDD and validation scripts verified in tools/ and lib/
+PASS skills: 8 canonical SDD skills verified
+PASS docs links: local Markdown targets resolve
+PASS spec readiness: Clarify gate, Mermaid structure, and cross-spec traceability verified
+Doctor result: READY
+[exit_code=0]
+
+=== 6: python3 -B tools/validate-docs.py --strict ===
+PASS: downstream documentation links and Mermaid structure
+[exit_code=0]
+
+=== 7: bash tests/render-mermaid.sh --extract-only ===
+PASS: extracted 9 Mermaid diagram(s)
+[exit_code=0]
+
+=== 8: python3 -B tools/validate-task-evidence.py --evidence-dir docs/internal/task-evidence ===
+PASS: task evidence and inventory validation
+[exit_code=0]
+

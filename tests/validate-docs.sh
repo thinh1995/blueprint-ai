@@ -65,6 +65,10 @@ require_text "docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md" "t
 require_text "docs/internal/acceptance-matrices/V5_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.0`'
 require_text "docs/internal/acceptance-matrices/V5_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.5.1`'
 require_text "docs/internal/acceptance-matrices/V6_ACCEPTANCE_MATRIX.md" 'Release target: `0.6.0`'
+require_text "docs/internal/acceptance-matrices/V6_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.6.1`'
+require_text "docs/current/02 - Architecture/Architecture.md" "## Brownfield security and tech-debt triage"
+require_text "docs/current/05 - Product Features/README.md" "## Anti-fragmentation and supersession lifecycle"
+require_text "docs/current/06 - Infrastructure & Deployment/Infrastructure Spec.md" "Secrets management and security scanning"
 require_text "docs/templates/examples/ai-support-agent/1. Product Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" '```mermaid'
 require_text "docs/templates/examples/ai-support-agent/2. Tech Spec.md" "sequenceDiagram"
@@ -244,22 +248,24 @@ with tempfile.TemporaryDirectory() as tmp:
     features = current / "05 - Product Features"
     features.mkdir(parents=True)
 
-    # 1. Code-stripped link validation, pre-unquote URI checks, %20 links, and Obsidian embeds
-    (current / "Target Note.md").write_text("# Target\n", encoding="utf-8")
+    # 1. Code-stripped link validation, pre-unquote URI checks, %20 links, docs/current/ wikilinks, and Obsidian embeds
+    (current / "Target Note.md").write_text("---\nstatus: active\nowner: eng\n---\n# Target\n\n## Sec\n", encoding="utf-8")
     (current / "diagram.png").write_bytes(b"\x89PNG\r\n")
     note = current / "prompts.md"
     note.write_text(
-        "---\nstatus: active\nowner: eng\n---\n"
+        "---\nstatus: active\nowner: eng\ntags: [moc, docs]\nsource_paths: [AGENTS.md]\n---\n"
         "Inline `[[1. Product Spec]]` and ``[missing](nope.md)`` are code.\n\n"
-        "Valid [spaced](./Target%20Note.md) and ![[diagram.png|600]].\n\n"
+        "Valid [spaced](./Target%20Note.md), [[docs/current/Target Note#Sec|Alias]], and ![[diagram.png|600]].\n\n"
         "```markdown\n[[Unresolved Wiki]] and [broken](missing-file.md)\n```\n",
         encoding="utf-8",
     )
-    validate_links(root, docs, [note])
+    target_note = current / "Target Note.md"
+    validate_links(root, docs, [note, target_note])
+    validate_clarify_gate(root, [note, target_note], strict=True)
 
     broken = current / "broken.md"
     broken.write_text("Real broken [link](does-not-exist.md)\n", encoding="utf-8")
-    expect_fail(lambda: validate_links(root, docs, [note, broken]), "broken link outside code", "missing Markdown link")
+    expect_fail(lambda: validate_links(root, docs, [note, target_note, broken]), "broken link outside code", "missing Markdown link")
 
     for bad_uri in ("file%3A///etc/passwd", "javascript:alert(1)"):
         broken.write_text(f"Blocked [uri]({bad_uri})\n", encoding="utf-8")
@@ -294,9 +300,21 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     expect_fail(lambda: validate_clarify_gate(root, [draft_note]), ">3 clarify tags in draft", "3")
 
-    for valid_lifecycle in ("superseded", "archived"):
-        draft_note.write_text(f"---\nstatus: {valid_lifecycle}\nowner: eng\n---\n# Old\n", encoding="utf-8")
-        validate_clarify_gate(root, [draft_note])
+    draft_note.write_text("---\nstatus: archived\nowner: eng\n---\n# Old\n", encoding="utf-8")
+    validate_clarify_gate(root, [draft_note])
+    validate_clarify_gate(root, [draft_note], strict=True)
+
+    draft_note.write_text("---\nstatus: superseded\nowner: eng\n---\n# Orphan Superseded\n", encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [draft_note], strict=False), "superseded without superseded_by (non-strict)", "superseded_by")
+    expect_fail(lambda: validate_clarify_gate(root, [draft_note], strict=True), "superseded without superseded_by (strict)", "superseded_by")
+
+    for valid_sup_target in ('"Target Note.md"', '"[[Target Note]]"', '"[[docs/current/Target Note#Sec|Alias]]"'):
+        draft_note.write_text(
+            f"---\nstatus: superseded\nsuperseded_by: {valid_sup_target}\ntags: [moc, docs]\nsource_paths: [AGENTS.md]\n---\n# Replaced\n",
+            encoding="utf-8",
+        )
+        validate_clarify_gate(root, [draft_note], strict=True)
+
     draft_note.write_text("---\nstatus: approve\nowner: eng\n---\n# Typo\n", encoding="utf-8")
     expect_fail(lambda: validate_clarify_gate(root, [draft_note]), "status typo approve", "status")
     draft_note.unlink()
@@ -431,11 +449,246 @@ with tempfile.TemporaryDirectory() as tmp:
     expect_fail(lambda: validate_feature_folder(root, bad_tasks), "overlapping [P] Owned paths", "overlap")
     shutil.rmtree(bad_tasks)
 
-    # CLI check for tools/validate-docs.py --require-tasks --strict
+    # 5b. v0.6.1 superseded_by, supersedes, governance YAML, triage schema/secret guard, and export-tasks refusal
+    # Positive: Mini-Spec -> 4-file pack -> 4-file pack (2-hop chain A -> B -> C where C is approved)
+    sup_mini_fm = APPROVED_FM.replace(
+        "status: approved\n",
+        'status: superseded\nsuperseded_by: "05 - Product Features/009-auth-full/1. Product Spec.md"\n',
+    )
+    sup_mid_fm = APPROVED_FM.replace(
+        "status: approved\n",
+        'status: superseded\nsupersedes: "05 - Product Features/005-mini-auth"\n'
+        'superseded_by: "05 - Product Features/010-auth-next/1. Product Spec.md"\n',
+    )
+    sup_final_fm = APPROVED_FM.replace(
+        "status: approved\n",
+        'status: approved\nsupersedes: "05 - Product Features/009-auth-full"\n',
+    )
+    write_mini_spec(mini_ok, fm=sup_mini_fm)
+    feat_mid = features / "009-auth-full"
+    feat_final = features / "010-auth-next"
+    write_valid_pack(feat_mid, fm=sup_mid_fm)
+    write_valid_pack(feat_final, fm=sup_final_fm)
+    validate_clarify_gate(root, sorted(current.rglob("*.md")), strict=True)
+    assert validate_feature_specs(root, features, require_tasks=True, strict=True) == []
+
+    # export-tasks.py unconditionally refuses status: superseded (printing superseded_by) and status: archived even with --allow-draft
     tools = root / "tools"
     tools.mkdir()
-    (tools / "docs_validation.py").write_text((tools_src_dir / "docs_validation.py").read_text(encoding="utf-8"), encoding="utf-8")
-    (tools / "validate-docs.py").write_text((tools_src_dir / "validate-docs.py").read_text(encoding="utf-8"), encoding="utf-8")
+    for tool_name in ("docs_validation.py", "validate-docs.py", "export-tasks.py"):
+        (tools / tool_name).write_text((tools_src_dir / tool_name).read_text(encoding="utf-8"), encoding="utf-8")
+    export_script = tools / "export-tasks.py"
+    res_exp_sup = subprocess.run(
+        [sys.executable, "-B", str(export_script), str(mini_ok), "--allow-draft"],
+        capture_output=True,
+        text=True,
+    )
+    assert res_exp_sup.returncode != 0 and "009-auth-full" in res_exp_sup.stderr, (
+        f"expected superseded export refusal with superseded_by hint, got: {res_exp_sup.stderr}"
+    )
+    arch_mini = features / "011-arch-mini"
+    write_mini_spec(arch_mini, fm=APPROVED_FM.replace("status: approved\n", "status: archived\n"))
+    res_exp_arch = subprocess.run(
+        [sys.executable, "-B", str(export_script), str(arch_mini), "--allow-draft"],
+        capture_output=True,
+        text=True,
+    )
+    assert res_exp_arch.returncode != 0 and "archived" in res_exp_arch.stderr.lower(), (
+        f"expected archived export refusal, got: {res_exp_arch.stderr}"
+    )
+    shutil.rmtree(arch_mini)
+
+    # Negative governance YAML, superseded_by, and supersedes cases
+    gov_bad = current / "gov-bad.md"
+    for bad_fm_body, label, substr in (
+        ("status: superseded\nsuperseded_by: [[Target Note]]\n", "unquoted [[...]] superseded_by", "quoted"),
+        ("status: [approved]\n", "unquoted [...] status", "quoted"),
+        ('status: superseded\nsuperseded_by: "Target Note.md"\nsuperseded_by: "Overview.md"\n', "duplicate superseded_by", "duplicate"),
+        ('status: superseded\nsuperseded_by: "Target Note.md\n', "unclosed quote", "quote"),
+        ('status: superseded\nsuperseded_by: "Target\\Note.md"\n', "raw backslash in quote", "\\"),
+        ("status: |\n  superseded\n", "block-scalar status spoofing", "plain or quoted scalar"),
+        ("status: superseded\nsuperseded_by: # comment-only\n", "comment-only superseded_by", "superseded_by"),
+        ('status: superseded\nsuperseded_by: "tbd"\n', "placeholder tbd", "placeholder"),
+        ('status: superseded\nsuperseded_by: "none"\n', "placeholder none", "placeholder"),
+        ('status: superseded\nsuperseded_by: "-"\n', "placeholder dash", "placeholder"),
+        ('status: superseded\nsuperseded_by: "../outside.md"\n', "parent traversal", ".."),
+        ('status: superseded\nsuperseded_by: "%2e%2e/outside.md"\n', "percent-encoded traversal", "%"),
+        ('status: superseded\nsuperseded_by: "gov-bad.md"\n', "self-reference", "itself"),
+    ):
+        gov_bad.write_text(f"---\n{bad_fm_body}---\n# Bad\n", encoding="utf-8")
+        expect_fail(lambda: validate_clarify_gate(root, [gov_bad], strict=True), label, substr)
+
+    # Unquoted supersedes and comment-only approved_by on feature spec
+    bad_sup_pack = features / "012-bad-sup"
+    write_mini_spec(
+        bad_sup_pack,
+        fm=APPROVED_FM.replace("approved_by: lead-eng", "approved_by: # waiting for review"),
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [bad_sup_pack / "1. Mini Spec.md"], strict=True), "comment-only approved_by", "approved_by")
+    write_mini_spec(
+        bad_sup_pack,
+        fm=DRAFT_FM.replace("status: draft\n", "status: draft\nsupersedes: [[005-mini-auth]]\n"),
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [bad_sup_pack / "1. Mini Spec.md"], strict=True), "unquoted supersedes", "quoted")
+    shutil.rmtree(bad_sup_pack)
+
+    # README.md inside 05 - Product Features forbidden as superseded_by target
+    (features / "README.md").write_text("---\nstatus: active\nowner: eng\n---\n# Features\n", encoding="utf-8")
+    gov_bad.write_text('---\nstatus: superseded\nsuperseded_by: "05 - Product Features/README.md"\n---\n# Bad\n', encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [gov_bad], strict=True), "05 - Product Features/README.md target", "spec file")
+    (features / "README.md").unlink()
+
+    # Intra-repo symlink target refused lexically before resolve()
+    sym_target = current / "Sym Target.md"
+    sym_target.symlink_to(current / "Target Note.md")
+    gov_bad.write_text('---\nstatus: superseded\nsuperseded_by: "Sym Target.md"\n---\n# Bad\n', encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [gov_bad], strict=True), "intra-repo symlink target", "symlink")
+    sym_target.unlink()
+
+    # Cycle (A -> B -> A) and dead archived terminal target
+    cycle_b = current / "cycle-b.md"
+    gov_bad.write_text('---\nstatus: superseded\nsuperseded_by: "cycle-b.md"\n---\n# A\n', encoding="utf-8")
+    cycle_b.write_text('---\nstatus: superseded\nsuperseded_by: "gov-bad.md"\n---\n# B\n', encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [gov_bad, cycle_b], strict=True), "superseded_by cycle", "cycle")
+    cycle_b.write_text("---\nstatus: archived\nowner: eng\n---\n# Dead\n", encoding="utf-8")
+    expect_fail(lambda: validate_clarify_gate(root, [gov_bad], strict=True), "archived terminal target", "archived")
+    cycle_b.unlink()
+    gov_bad.unlink()
+
+    # Intra-pack target, divergent 4-file superseded_by / supersedes, formerly approved -> draft under --strict, and approved supersedes -> still-approved old pack under --strict
+    bad_pack_sup = features / "013-bad-pack"
+    write_valid_pack(
+        bad_pack_sup,
+        fm=APPROVED_FM.replace(
+            "status: approved\n",
+            'status: superseded\nsuperseded_by: "05 - Product Features/013-bad-pack/2. Tech Spec.md"\n',
+        ),
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [bad_pack_sup / "1. Product Spec.md"], strict=True), "intra-pack target", "same feature folder")
+
+    write_valid_pack(
+        bad_pack_sup,
+        fm=APPROVED_FM.replace(
+            "status: approved\n",
+            'status: superseded\nsuperseded_by: "05 - Product Features/010-auth-next/1. Product Spec.md"\n',
+        ),
+    )
+    (bad_pack_sup / "2. Tech Spec.md").write_text(
+        (bad_pack_sup / "2. Tech Spec.md")
+        .read_text(encoding="utf-8")
+        .replace("010-auth-next", "001-auth"),
+        encoding="utf-8",
+    )
+    expect_fail(lambda: validate_feature_folder(root, bad_pack_sup, strict=True), "divergent 4-file superseded_by", "same replacement")
+
+    write_valid_pack(
+        bad_pack_sup,
+        fm=DRAFT_FM.replace(
+            "status: draft\n",
+            'status: draft\nsupersedes: "05 - Product Features/001-auth"\n',
+        ),
+    )
+    (bad_pack_sup / "3. QA Spec.md").write_text(
+        (bad_pack_sup / "3. QA Spec.md")
+        .read_text(encoding="utf-8")
+        .replace("001-auth", "002-five-col"),
+        encoding="utf-8",
+    )
+    expect_fail(lambda: validate_feature_folder(root, bad_pack_sup, strict=True), "divergent 4-file supersedes", "divergent 'supersedes'")
+
+    # Formerly approved spec superseded by draft fails under --strict
+    write_mini_spec(
+        bad_pack_sup,
+        fm=APPROVED_FM.replace(
+            "status: approved\n",
+            'status: superseded\nsuperseded_by: "05 - Product Features/006-mini-draft/1. Mini Spec.md"\n',
+        ),
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [bad_pack_sup / "1. Mini Spec.md"], strict=True), "formerly approved -> draft under --strict", "approved")
+
+    # Approved replacement pack with supersedes pointing to still-approved 001-auth fails under --strict
+    write_mini_spec(
+        bad_pack_sup,
+        fm=APPROVED_FM.replace(
+            "status: approved\n",
+            'status: approved\nsupersedes: "05 - Product Features/001-auth"\n',
+        ),
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [bad_pack_sup / "1. Mini Spec.md"], strict=True), "approved supersedes still-approved old pack", "superseded")
+    shutil.rmtree(bad_pack_sup)
+    shutil.rmtree(feat_mid)
+    shutil.rmtree(feat_final)
+    write_mini_spec(mini_ok, fm=APPROVED_FM)
+
+    # Triage table & secret-guard tests (both Evidence and Evidence (`file:line`), blank starter cell, status enum, duplicate ID, leaked secrets)
+    arch_note = current / "Architecture.md"
+    for ev_hdr in ("Evidence (`file:line`)", "Evidence"):
+        arch_note.write_text(
+            "---\nstatus: active\nowner: eng\n---\n# Arch\n\n"
+            "## Brownfield security and tech-debt triage\n\n"
+            f"| ID | Category | Severity | {ev_hdr} | Risk / debt summary | Remediation route | Target spec or evidence | Status |\n"
+            "|---|---|---|---|---|---|---|---|\n"
+            "| SEC-01 | auth | high |  | Starter blank evidence row | Tier S (`/sdd-fix`) |  | Open |\n"
+            "| SEC-02 | secrets | medium | `src/cfg.py:12` | Redacted env check (`postgres://user:pass@localhost/db`) | Spec Amendment | `05 - Product Features/001-auth` | In Progress |\n"
+            "| SEC-03 | deps | low | `package.json:4` | Pinned dep | `/sdd-fix` | `task-evidence/fix.md` | Mitigated |\n"
+            "| SEC-04 | debt | low | `src/old.py:1` | Deferred | Accepted | - | Accepted Risk |\n",
+            encoding="utf-8",
+        )
+        validate_clarify_gate(root, [arch_note], strict=True)
+
+    # Missing column
+    arch_note.write_text(
+        "---\nstatus: active\nowner: eng\n---\n# Arch\n\n"
+        "## Brownfield security and tech-debt triage\n\n"
+        "| ID | Category | Severity | Risk / debt summary | Status |\n"
+        "|---|---|---|---|---|\n"
+        "| SEC-01 | auth | high | Missing cols | Open |\n",
+        encoding="utf-8",
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [arch_note], strict=True), "triage missing columns", "missing required column")
+
+    # Duplicate SEC-01
+    arch_note.write_text(
+        "---\nstatus: active\nowner: eng\n---\n# Arch\n\n"
+        "## Brownfield security and tech-debt triage\n\n"
+        "| ID | Category | Severity | Evidence | Risk / debt summary | Remediation route | Target spec or evidence | Status |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| SEC-01 | auth | high | `a.py:1` | One | `/sdd-fix` | - | Open |\n"
+        "| SEC-01 | auth | low | `b.py:2` | Dup | `/sdd-fix` | - | Open |\n",
+        encoding="utf-8",
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [arch_note], strict=True), "duplicate SEC-01", "duplicate triage ID")
+
+    # Invalid Status
+    arch_note.write_text(
+        "---\nstatus: active\nowner: eng\n---\n# Arch\n\n"
+        "## Brownfield security and tech-debt triage\n\n"
+        "| ID | Category | Severity | Evidence | Risk / debt summary | Remediation route | Target spec or evidence | Status |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| SEC-01 | auth | high | `a.py:1` | Bad status | `/sdd-fix` | - | Resolved |\n",
+        encoding="utf-8",
+    )
+    expect_fail(lambda: validate_clarify_gate(root, [arch_note], strict=True), "invalid triage Status", "invalid Status")
+
+    # Secret leak detector (constructed dynamically so test script never embeds literal secret tokens)
+    fake_aws = "AKIA" + "IOSFODNN7EXAMPLE"
+    fake_ghp = "ghp_" + ("A1b2C3d4E5f6" * 3)
+    fake_fgpat = "github_pat_" + ("11AABBCCDD" * 3)
+    fake_pem = "-----BEGIN " + "PRIVATE KEY-----"
+    for leaked_tok, tok_label in (
+        (fake_aws, "AWS key leak"),
+        (fake_ghp, "GitHub PAT leak"),
+        (fake_fgpat, "GitHub fine-grained PAT leak"),
+        (fake_pem, "PEM private key leak"),
+    ):
+        arch_note.write_text(
+            f"---\nstatus: active\nowner: eng\n---\n# Arch\n\nLeaked: {leaked_tok}\n",
+            encoding="utf-8",
+        )
+        expect_fail(lambda: validate_clarify_gate(root, [arch_note], strict=True), tok_label, "secret")
+    arch_note.unlink()
+
+    # CLI check for tools/validate-docs.py --require-tasks
     subprocess.run([sys.executable, "-B", str(tools / "validate-docs.py"), "--require-tasks"], check=True, stdout=subprocess.DEVNULL)
 
 # 6. Git-backed earliest-approved-commit tampering check + validate-task-evidence.py security unit tests
@@ -485,6 +738,28 @@ with tempfile.TemporaryDirectory() as git_tmp:
         "Acceptance criteria",
     )
     mini_path.write_text(converged_text, encoding="utf-8")
+
+    # Historical AC tampering on a status: superseded spec in Git repo fails!
+    gfull = gfeatures / "002-git-full"
+    gfull_fm = stamped_fm.replace(
+        "status: approved\n",
+        'status: approved\nsupersedes: "05 - Product Features/001-git-mini"\n',
+    )
+    write_valid_pack(gfull, fm=gfull_fm)
+    superseded_mini_text = converged_text.replace(
+        "status: approved\n",
+        'status: superseded\nsuperseded_by: "05 - Product Features/002-git-full/1. Product Spec.md"\n',
+    )
+    mini_path.write_text(superseded_mini_text, encoding="utf-8")
+    validate_clarify_gate(groot, [mini_path, *sorted(gfull.glob("*.md"))], strict=True)
+    mini_path.write_text(superseded_mini_text.replace("200 OK", "201 Tampered"), encoding="utf-8")
+    expect_fail(
+        lambda: validate_clarify_gate(groot, [mini_path], strict=True),
+        "tampered historical AC on superseded spec",
+        "Acceptance criteria",
+    )
+    mini_path.write_text(converged_text, encoding="utf-8")
+    shutil.rmtree(gfull)
 
     # validate-task-evidence.py: \r\n + quoted status, --allow-working-tree draft-only, symlinks, scoped corrections
     gtools = groot / "tools"

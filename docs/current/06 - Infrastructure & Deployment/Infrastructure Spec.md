@@ -17,6 +17,7 @@ Ghi lại danh mục môi trường vận hành, quy trình CI/CD, giám sát c�
 | Area | Process / evidence | Owner |
 |---|---|---|
 | CI checks |  |  |
+| Secrets management and security scanning | Quản lý khoá bí mật ngoài Git (secret manager/vault), xoay vòng khoá và cổng quét lộ secret / lỗ hổng phụ thuộc (SCA/SAST) trên CI/CD (không ghi giá trị secret thật). |  |
 | Deployment |  |  |
 | Observability and alerting |  |  |
 | Backup and restore |  |  |

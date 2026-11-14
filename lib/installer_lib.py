@@ -21,7 +21,7 @@ from urllib.parse import unquote
 
 TEMPLATE_ID = "ai-agent-obsidian-project-template"
 REQUIRED_PROFILES = ("core", "--with-advanced-docs", "--with-legacy-agents")
-BUILTIN_PRESETS = {"general", "web-api", "cli-tool", "ai-agent"}
+BUILTIN_PRESETS = {"general", "web-api", "cli-tool", "ai-agent", "security-hardening"}
 KEBAB_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -133,24 +133,69 @@ SOURCE_OVERRIDES: dict[str, str] = {
 }
 
 PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
-    "CLAUDE.md": {"dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a"},
+    "AGENTS.md": {
+        "b318c52d980c3d5e0522fe4f0190226374175dcfdcb0c4a3017c358de379053a",
+    },
+    "CLAUDE.md": {
+        "dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a",
+        "9d1e8b139b166a9fca8c9cfd1898caeee685872ea0eb80439a565035c11d0300",
+    },
     "GEMINI.md": {"7277122704187512c0cec801eeb99c4f92668a04e63a36c77fd680d5f0acb45b"},
     "QWEN.md": {"b799d01b4909119a3da308a805cb158a05aee07fa61d3d0a1a35940e50683d51"},
+    "adapters/copilot-instructions.md": {
+        "ad6c1ef0d66f938bcfa4907223d4836528576106d342352ea983761e528ce68c",
+    },
+    "adapters/cursor-agents.mdc": {
+        "246dd13c967398aa35952dbd7a0a8eaf1037f345eb58e82c5bfb039b028bc4f5",
+    },
     "skills/sdd-docs/SKILL.md": {
         "4ff7e524649180e017f0069acd525506619310619744f72e3dc92c57dd569afb",
         "c7fcdd2670ea4fde6656fa1e337beeec0311a7bc307ed0e3222ecbdeeb64a7c6",
+        "85c3163dd9ea5d4964175f4a8c52a84ce175e6ab70e27d63a3549741bea7b5c7",
     },
-    "skills/sdd-specify/SKILL.md": {"3595f0930d4864be24271edfb0c3a084898726d22d76950751d034940abeb034"},
-    "skills/sdd-clarify/SKILL.md": {"e4ac7aa24dbfa92ba40214cac370879aff2f5404784cca71367011110878a2ab"},
-    "skills/sdd-plan/SKILL.md": {"1ac4e8e54d29a9448f23b2892836a7b4a339a865e65e787456b556c60880824a"},
-    "skills/sdd-tasks/SKILL.md": {"e5a3c2a081f52ab63333fa511de50759bd21968ea841d81963ef162d649da1ef"},
-    "skills/sdd-analyze/SKILL.md": {"39cf981dc3547d01c2c4ced0c0c7fce839369a7b932c57fc92df41a586676306"},
+    "skills/sdd-specify/SKILL.md": {
+        "3595f0930d4864be24271edfb0c3a084898726d22d76950751d034940abeb034",
+        "f3331df869fb3354607a979b0d71c0fe6982aed41819ebf8d57166f036a52f72",
+    },
+    "skills/sdd-clarify/SKILL.md": {
+        "e4ac7aa24dbfa92ba40214cac370879aff2f5404784cca71367011110878a2ab",
+        "f219433189cd3d8c0b68b8f3479e7fa197d0f8c5fca26ae957ea766d2ce630c9",
+    },
+    "skills/sdd-plan/SKILL.md": {
+        "1ac4e8e54d29a9448f23b2892836a7b4a339a865e65e787456b556c60880824a",
+        "1080e20105c02ee6bf3d15de2e349d834df1345d72c439c361cb7f3b335cd4fc",
+    },
+    "skills/sdd-tasks/SKILL.md": {
+        "e5a3c2a081f52ab63333fa511de50759bd21968ea841d81963ef162d649da1ef",
+        "813880a75adf7bfa1eb6a75377ebf5a22590767b8e9ed41a47a35e9ba3c6b6f6",
+    },
+    "skills/sdd-analyze/SKILL.md": {
+        "39cf981dc3547d01c2c4ced0c0c7fce839369a7b932c57fc92df41a586676306",
+        "d7bd2635aca5ab6717467dd87699cf83567c59d37fb17c17c27bf066bb6b02a6",
+    },
     "skills/sdd-implement/SKILL.md": {
         "9d8b5b678fb4e55e1c5f2062080dbe2b21e47e54992c07d97d3b7a84ad14a2ac",
         "c093e6656692fa32ad8f9bfabef0e172cde369e3aa4f81beb204effa873f16cb",
+        "2570a6427a90276f87b90abfeeab774563ae731e29721c38934bedd466c405c0",
     },
     "skills/sdd-fix/SKILL.md": {
         "ab237567af83c3ab2783921561928614605a9618a8111714a2ce1861ecdb4535",
+        "5e323c915df62cab8c67b2b56a13bef25742ec9720cc614fca93fe5b3d076c45",
+    },
+    "tools/docs_validation.py": {
+        "077f28407a8f575723542d4f14ced73b056276a431ab49fe740c394699905748",
+    },
+    "tools/export-tasks.py": {
+        "0069b1fef04370ef024ff23dc77cb2a9641714ab414590499c92ced58c54cce3",
+    },
+    "tools/new-feature.py": {
+        "89fa04fe970cf7772e3579697c7b3c9ebd8894ddd784a4bbdcdff25610569a08",
+    },
+    "tools/validate-docs.py": {
+        "10ea7b992909e46d4d7b458abfb618fc3a0ff5f1b921c7ada28264b61bbee011",
+    },
+    "tools/validate-task-evidence.py": {
+        "8a66450bdf47a5ead4c97a77e7ce6752309a32ef134cbc1c12e58f7bbe366634",
     },
 }
 

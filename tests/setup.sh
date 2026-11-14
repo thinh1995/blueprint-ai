@@ -2000,4 +2000,171 @@ if python3 -B "$TEMPLATE_DIR/tools/new-feature.py" accidental-spec > "$TEST_DIR/
 fi
 assert_file_contains "$TEST_DIR/source-refuse-scaffold.txt" "refusing to scaffold feature specs inside the source ai-project-template repository"
 
+# --- v0.6.1 Security-Hardening Preset, --supersede Promotion, Core-Link Isolation, and v0.6.0 -> v0.6.1 Migration ---
+
+# 8. Fresh setup.sh --preset security-hardening + --doctor + strict validate-docs on default core profile (no --with-advanced-docs)
+assert_file_contains "$TEST_DIR/source-list-presets.txt" "security-hardening"
+sec_target="$TEST_DIR/v061-sec-target"
+mkdir -p "$sec_target"
+(
+    cd "$sec_target"
+    bash "$TEMPLATE_DIR/setup.sh" --preset security-hardening --models claude,cursor >/dev/null
+)
+[ ! -e "$sec_target/docs/current/06 - Infrastructure & Deployment/Infrastructure Spec.md" ] || fail "default core install unexpectedly copied Infrastructure Spec.md"
+python3 -B "$sec_target/tools/validate-docs.py" --strict > "$TEST_DIR/v061-core-validate.txt"
+assert_file_contains "$TEST_DIR/v061-core-validate.txt" "PASS: downstream documentation links and Mermaid structure"
+(
+    cd "$sec_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v061-sec-doctor.txt"
+assert_file_contains "$TEST_DIR/v061-sec-doctor.txt" "PASS preset: built-in default_preset 'security-hardening' verified"
+assert_file_contains "$TEST_DIR/v061-sec-doctor.txt" "Doctor result: READY"
+
+# 9. new-feature.py --preset security-hardening (--mini & 4-file) + Tier M -> Tier L --supersede promotion & --doctor superseded_by gate
+git -C "$sec_target" init -q
+git -C "$sec_target" config user.email "test@example.invalid"
+git -C "$sec_target" config user.name "Test"
+printf '.ai-template-backup.*/\nplans/\n' > "$sec_target/.gitignore"
+git -C "$sec_target" add .
+git -C "$sec_target" commit -qm "chore: initial security-hardening install"
+sec_base_sha="$(git -C "$sec_target" rev-parse HEAD)"
+
+python3 -B "$sec_target/tools/new-feature.py" sec-auth --mini --preset security-hardening > "$TEST_DIR/v061-nf-mini-sec.txt"
+[ -f "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" ] || fail "new-feature --mini --preset security-hardening did not create 001-sec-auth/1. Mini Spec.md"
+assert_file_contains "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" "SEC-xx"
+
+# Approve 001-sec-auth in Git first so it has real approved history
+python3 -B - "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" "$sec_base_sha" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+sha = sys.argv[2]
+text = p.read_text(encoding="utf-8")
+text = text.replace("status: draft", "status: approved", 1)
+text = text.replace("approved_by:", "approved_by: sec-lead", 1)
+text = text.replace("approved_at:", "approved_at: 2026-11-14", 1)
+text = text.replace("approval_evidence:", "approval_evidence: SEC-PR-1", 1)
+text = text.replace("source_revision:", f"source_revision: {sha}", 1)
+text = text.replace("- [ ]", "- [x]")
+p.write_text(text, encoding="utf-8")
+PY
+git -C "$sec_target" add .
+git -C "$sec_target" commit -qm "docs: approve 001-sec-auth mini spec"
+
+# Base-slug reuse WITHOUT --supersede must still fail
+if python3 -B "$sec_target/tools/new-feature.py" sec-auth --preset security-hardening > "$TEST_DIR/v061-nf-collision.txt" 2>&1; then
+    fail "new-feature allowed duplicate active base-slug without --supersede"
+fi
+assert_file_contains "$TEST_DIR/v061-nf-collision.txt" "001-sec-auth"
+
+# Promote Tier M -> Tier L with --supersede 001-sec-auth --preset security-hardening
+python3 -B "$sec_target/tools/new-feature.py" sec-auth --supersede 001-sec-auth --preset security-hardening > "$TEST_DIR/v061-nf-supersede.txt"
+[ -f "$sec_target/docs/current/05 - Product Features/002-sec-auth/1. Product Spec.md" ] || fail "new-feature --supersede did not create 002-sec-auth/1. Product Spec.md"
+assert_file_contains "$TEST_DIR/v061-nf-supersede.txt" "/sdd-analyze"
+for spec_file in "1. Product Spec.md" "2. Tech Spec.md" "3. QA Spec.md" "4. Tasks.md"; do
+    assert_file_contains "$sec_target/docs/current/05 - Product Features/002-sec-auth/$spec_file" 'supersedes: "05 - Product Features/001-sec-auth"'
+done
+assert_file_contains "$sec_target/docs/current/05 - Product Features/002-sec-auth/2. Tech Spec.md" "SEC-xx"
+assert_file_contains "$sec_target/docs/current/05 - Product Features/002-sec-auth/3. QA Spec.md" "Preset security-hardening"
+
+# Orphan status: superseded without superseded_by must fail setup.sh --doctor with updated remediation text
+python3 -B - "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+p.write_text(p.read_text(encoding="utf-8").replace("status: approved", "status: superseded", 1), encoding="utf-8")
+PY
+if (
+    cd "$sec_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v061-orphan-sup-doctor.txt" 2>&1; then
+    fail "setup.sh --doctor accepted status: superseded without superseded_by"
+fi
+assert_file_contains "$TEST_DIR/v061-orphan-sup-doctor.txt" "approval/superseded_by frontmatter"
+
+# Restore 001-sec-auth to approved, commit draft 002-sec-auth, then atomically approve 002-sec-auth and stamp 001-sec-auth superseded
+python3 -B - "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+p.write_text(p.read_text(encoding="utf-8").replace("status: superseded", "status: approved", 1), encoding="utf-8")
+PY
+git -C "$sec_target" add .
+git -C "$sec_target" commit -qm "docs: draft 002-sec-auth replacement pack"
+sec_draft2_sha="$(git -C "$sec_target" rev-parse HEAD)"
+
+python3 -B - "$sec_target/docs/current/05 - Product Features/001-sec-auth/1. Mini Spec.md" "$sec_target/docs/current/05 - Product Features/002-sec-auth" "$sec_draft2_sha" <<'PY'
+import sys
+from pathlib import Path
+
+mini_p = Path(sys.argv[1])
+full_dir = Path(sys.argv[2])
+sha = sys.argv[3]
+
+mini_txt = mini_p.read_text(encoding="utf-8").replace(
+    "status: approved\n",
+    'status: superseded\nsuperseded_by: "05 - Product Features/002-sec-auth/1. Product Spec.md"\n',
+    1,
+)
+mini_p.write_text(mini_txt, encoding="utf-8")
+
+for name in ("1. Product Spec.md", "2. Tech Spec.md", "3. QA Spec.md", "4. Tasks.md"):
+    p = full_dir / name
+    txt = p.read_text(encoding="utf-8")
+    txt = txt.replace("status: draft", "status: approved", 1)
+    txt = txt.replace("approved_by:", "approved_by: sec-lead", 1)
+    txt = txt.replace("approved_at:", "approved_at: 2026-11-14", 1)
+    txt = txt.replace("approval_evidence:", "approval_evidence: SEC-PR-2", 1)
+    txt = txt.replace("source_revision:", f"source_revision: {sha}", 1)
+    txt = txt.replace("- [ ]", "- [x]")
+    p.write_text(txt, encoding="utf-8")
+PY
+python3 -B "$sec_target/tools/validate-docs.py" --require-tasks --strict > "$TEST_DIR/v061-supersede-validate.txt"
+assert_file_contains "$TEST_DIR/v061-supersede-validate.txt" "PASS: downstream documentation links and Mermaid structure"
+(
+    cd "$sec_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor --strict
+) > "$TEST_DIR/v061-supersede-doctor-strict.txt"
+assert_file_contains "$TEST_DIR/v061-supersede-doctor-strict.txt" "Doctor result: READY"
+if python3 -B "$sec_target/tools/new-feature.py" sec-auth --supersede 001-sec-auth > "$TEST_DIR/v061-nf-dead-sup.txt" 2>&1; then
+    fail "new-feature --supersede accepted an already-superseded target folder"
+fi
+assert_file_contains "$TEST_DIR/v061-nf-dead-sup.txt" "already superseded or archived"
+
+# 10. v0.6.0 -> v0.6.1 --update --set-models migration (PRIOR_TEMPLATE_SHA256S pruning without false USER_SKILL / USER_ADAPTER lockout)
+v060_template_source="$TEST_DIR/v060-template-source"
+v060_mig_target="$TEST_DIR/v060-mig-target"
+mkdir -p "$v060_template_source" "$v060_mig_target"
+git -C "$TEMPLATE_DIR" archive v0.6.0 | tar -x -C "$v060_template_source"
+(
+    cd "$v060_mig_target"
+    bash "$v060_template_source/setup.sh" </dev/null >/dev/null
+)
+(
+    cd "$v060_mig_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude
+) > "$TEST_DIR/v060-to-v061-setmodels-claude.txt" 2>&1
+if grep -Fq "preserving user-modified deselected file" "$TEST_DIR/v060-to-v061-setmodels-claude.txt"; then
+    fail "v0.6.0 -> v0.6.1 --update --set-models claude falsely treated untouched v0.6.0 files as user-modified"
+fi
+[ ! -e "$v060_mig_target/.agents/skills" ] || fail "v0.6.0 -> v0.6.1 --set-models claude did not prune .agents/skills"
+[ ! -e "$v060_mig_target/.qwen/skills" ] || fail "v0.6.0 -> v0.6.1 --set-models claude did not prune .qwen/skills"
+[ ! -e "$v060_mig_target/GEMINI.md" ] || fail "v0.6.0 -> v0.6.1 --set-models claude did not prune GEMINI.md"
+[ ! -e "$v060_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.6.0 -> v0.6.1 --set-models claude did not prune .cursor/rules/agents.mdc"
+assert_file_contains "$v060_mig_target/.claude/skills/sdd-specify/SKILL.md" "security-hardening"
+
+(
+    cd "$v060_mig_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude,cursor
+) > "$TEST_DIR/v060-to-v061-readd-cursor.txt" 2>&1
+if grep -Fq "SKIP (user-owned" "$TEST_DIR/v060-to-v061-readd-cursor.txt"; then
+    fail "v0.6.0 -> v0.6.1 re-selecting cursor hit unexpected USER_SKILL/USER_ADAPTER lockout"
+fi
+[ -f "$v060_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.6.0 -> v0.6.1 re-selecting cursor did not reinstall .cursor/rules/agents.mdc"
+[ "$(find "$v060_mig_target/.agents/skills" -name 'SKILL.md' | wc -l | tr -d ' ')" -eq 8 ] || fail "expected all 8 v0.6.1 skills in .agents/skills after re-selecting cursor"
+assert_file_contains "$v060_mig_target/.agents/skills/sdd-specify/SKILL.md" "security-hardening"
+
 echo "PASS: setup installer regression tests"

@@ -1,6 +1,6 @@
 # AI Agent & Obsidian Project Template
 
-Current release: `0.7.0`. See [V7 Acceptance Matrix](docs/internal/acceptance-matrices/V7_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
+Current release: `0.7.1`. See [V7.1 Acceptance Matrix](docs/internal/acceptance-matrices/V7_1_ACCEPTANCE_MATRIX.md) and [Changelog](CHANGELOG.md).
 
 > **Dành cho người mới — Bộ khung này là gì?**
 > Đây **không phải** là thư viện mã nguồn (như gói `npm` hay `pip`), mà là **bộ quy tắc điều phối chuẩn cho AI Agent kết hợp kho tài liệu dự án Docs-as-Code (GitHub + Obsidian)**. Khi cài đặt vào dự án của bạn, bộ khung giải quyết triệt để 3 bài toán lớn khi lập trình cùng AI:
@@ -60,9 +60,9 @@ Chọn đúng luồng tương ứng với quy mô công việc ngay trong khung 
 
 | Tier | Scope and criteria | Slash-command workflow |
 |---|---|---|
-| **Tier S** | Sửa lỗi hồi quy / hotfix / chỉnh sửa nhỏ (**0 `AC-xx` mới**, không đổi schema hay API công khai). | `/sdd-fix <mô-tả-lỗi>` *(tạo test tái hiện lỗi trước -> sửa tối giản -> `tools/record-evidence.py` ghi `task-evidence/`, tuỳ chọn `/sdd-review`).* |
-| **Tier M** | Tính năng nhỏ/vừa (**1–2 `AC-xx`**, không thêm mô hình dữ liệu bền vững mới hay tích hợp ngoài phức tạp). | `/sdd-specify <slug> --mini` -> `/sdd-clarify` -> `/sdd-analyze` -> *(duyệt qua `tools/stamp-spec.py`)* -> `/sdd-implement` -> *(tuỳ chọn `/sdd-review`)* *(1 file `1. Mini Spec.md`).* |
-| **Tier L** | Tính năng lớn (**>= 3 `AC-xx`**, đổi schema/API, tích hợp bên thứ ba, đa tenant hoặc **AI Agent**). | `/sdd-specify <slug>` -> `/sdd-clarify` -> `/sdd-plan` -> `/sdd-tasks` -> `/sdd-analyze` -> *(duyệt qua `tools/stamp-spec.py`)* -> `/sdd-implement` -> *(tuỳ chọn `/sdd-review`)* *(trọn bộ 4 file `1..4`).* |
+| **Tier S** | Sửa lỗi hồi quy / hotfix / vá bảo mật cục bộ hoặc tinh chỉnh nhỏ (**0 `AC-xx` mới**, không đổi hợp đồng API, schema, phân quyền hay luồng người dùng; thường gọn trong `1–3` file như mốc tham khảo mềm). | `/sdd-fix <mô-tả-lỗi>` *(tạo test tái hiện lỗi trước -> sửa tối giản -> `tools/record-evidence.py` ghi `task-evidence/`, tuỳ chọn `/sdd-review`).* |
+| **Tier M** | Tính năng đơn miền nhỏ/vừa (**1–2 `AC-xx`**, không thêm mô hình dữ liệu bền vững mới hay tích hợp ngoài phức tạp, thực thi tuần tự không dùng `[P] = yes`). | `/sdd-specify <slug> --mini` -> `/sdd-clarify` -> `/sdd-analyze` -> *(duyệt qua `tools/stamp-spec.py`)* -> `/sdd-implement` -> *(tuỳ chọn `/sdd-review`)* *(1 file `1. Mini Spec.md`).* |
+| **Tier L** | Tính năng lớn (**>= 3 `AC-xx`**, đổi hợp đồng schema/API, tích hợp bên thứ ba phức tạp, phân quyền đa tenant, chạy song song `[P] = yes` hoặc **AI Agent**). | `/sdd-specify <slug>` -> `/sdd-clarify` -> `/sdd-plan` -> `/sdd-tasks` -> `/sdd-analyze` -> *(duyệt qua `tools/stamp-spec.py`)* -> `/sdd-implement` -> *(tuỳ chọn `/sdd-review`)* *(trọn bộ 4 file `1..4`).* |
 
 ### End-to-end chat walkthrough (Tier M example)
 
@@ -81,7 +81,7 @@ Dưới đây là trọn vẹn 4 câu chat thực tế từ lúc nêu ý tưởn
    > `Tôi phê duyệt spec này (approved_by: thinh). Hãy đóng dấu status: approved kèm HEAD SHA hiện tại (commit bản nháp trước nếu cần), sau đó chạy /sdd-implement và /sdd-review.`
    *(AI chạy `tools/stamp-spec.py` để đóng dấu `status: approved` + 40-hex `HEAD` SHA vào `source_revision`, kiểm tra `tools/validate-docs.py --require-tasks --strict --check-owned-paths`, viết code + test đúng trong phạm vi `Owned paths`, cập nhật `Status: done`, ghi bằng chứng 1-commit `source_revision: self` qua `tools/record-evidence.py` vào `task-evidence/` và kiểm toán độc lập trước PR bằng `/sdd-review`).*
 
-> **Mẹo khi khung chat không hiện gợi ý `/sdd-*`:** Hãy reload cửa sổ IDE/CLI để nạp thư mục `.agents/skills/` (hoặc `.claude/skills/`, `.qwen/skills/`). Ngay cả khi bạn tắt skill bằng `--without-skills` hoặc dùng công cụ không hỗ trợ slash command, bạn chỉ cần nhắn bằng tiếng Việt tự nhiên: *"Thực hiện bước 1. Specify (chế độ Mini Spec) theo `docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md` cho tính năng..."*.
+> **Mẹo khi khung chat không hiện gợi ý `/sdd-*`:** Hãy reload cửa sổ IDE/CLI để nạp thư mục `.agents/skills/` (hoặc `.claude/skills/`, `.qwen/skills/`). Vì toàn bộ kỹ năng cài đặt bật cờ `disable-model-invocation: true` để tránh AI tự ý kích hoạt ngầm khi bạn chỉ đặt câu hỏi tra cứu, nếu không dùng slash command (hoặc khi tắt skill bằng `--without-skills`), bạn hãy chỉ định rõ tệp prompt trong câu nhắn tự nhiên: *"Thực hiện bước 1. Specify (chế độ Mini Spec) theo `docs/current/00 - Onboarding/6. Spec-Driven Feature Prompts.md` cho tính năng..."* (hoặc tham chiếu `docs/current/00 - Onboarding/4. Whole-Project Documentation Update Prompt.md` khi cập nhật tài liệu toàn dự án).
 
 ---
 

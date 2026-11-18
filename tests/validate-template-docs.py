@@ -111,6 +111,8 @@ def main() -> None:
     )
     require_text(ROOT / "AGENTS.md", "--supersede")
     require_text(ROOT / "AGENTS.md", "superseded_by")
+    require_text(ROOT / "AGENTS.md", "Markdown H1/H2/H3 headings")
+    require("Markdown ## headings" not in read(ROOT / "AGENTS.md"), "AGENTS.md: stale 'Markdown ## headings' remains")
     setup_guide = require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
     for setup_token in (
         "9 lệnh tắt Agent Skills",

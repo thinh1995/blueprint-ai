@@ -67,6 +67,7 @@ require_text "docs/internal/acceptance-matrices/V5_1_ACCEPTANCE_MATRIX.md" 'Rele
 require_text "docs/internal/acceptance-matrices/V6_ACCEPTANCE_MATRIX.md" 'Release target: `0.6.0`'
 require_text "docs/internal/acceptance-matrices/V6_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.6.1`'
 require_text "docs/internal/acceptance-matrices/V7_ACCEPTANCE_MATRIX.md" 'Release target: `0.7.0`'
+require_text "docs/internal/acceptance-matrices/V7_1_ACCEPTANCE_MATRIX.md" 'Release target: `0.7.1`'
 require_text "AGENTS.md" "stamp-spec.py"
 require_text "AGENTS.md" "--check-owned-paths"
 require_text "AGENTS.md" "/sdd-review"
@@ -1961,6 +1962,284 @@ with tempfile.TemporaryDirectory() as v7_tmp:
         "NUL in --command",
         "control",
     )
+
+    # 8. v0.7.1 regressions: \\| table row split, Tier L Spec Amendment (--amend) + --check-owned-paths (feature branch & main + dirty commit hint + post-amend tampering), .ai-template-backup.* diff immunity, and monorepo subdir tampering + zero-touch --dry-run (RT-03)
+    from docs_validation import _split_table_row  # noqa: E402
+
+    assert _split_table_row(r"| AC-01 | Path C:\\ | Expect OK |") == [
+        "AC-01",
+        r"Path C:\\",
+        "Expect OK",
+    ], _split_table_row(r"| AC-01 | Path C:\\ | Expect OK |")
+
+    # 8A. Tier L Spec Amendment (--amend) + --check-owned-paths + .ai-template-backup.* immunity
+    am_root = init_repo(v7_base / "v71-amend-repo")
+    am_vdocs = am_root / "tools/validate-docs.py"
+    am_stamp = am_root / "tools/stamp-spec.py"
+    (am_root / "README.md").write_text("base\n", encoding="utf-8")
+    (am_root / "docs/current/02 - Architecture").mkdir(parents=True)
+    (am_root / "docs/current/02 - Architecture/Architecture.md").write_text("---\nstatus: active\nowner: eng\n---\n# Arch\n", encoding="utf-8")
+    am_feat = am_root / "docs/current/05 - Product Features/001-amend-l"
+    write_valid_pack(
+        am_feat,
+        fm=DRAFT_FM,
+        tasks_rows=(
+            "| T-01 | todo | yes | - | AC-01, AC-02 | `src/owned/` | Owned module | `pytest tests/owned` |\n"
+        ),
+    )
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "draft 001-amend-l on main"], check=True)
+    subprocess.run([sys.executable, "-B", str(am_stamp), "001-amend-l", "--by", "lead", "--evidence", "PR-10", "--root", str(am_root)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "approve 001-amend-l on main"], check=True)
+
+    # Feature branch: implement, amend 1..4 via stamp-spec.py --amend
+    subprocess.run(["git", "-C", str(am_root), "checkout", "-qb", "feat/001-amend-l"], check=True)
+    (am_root / "src/owned").mkdir(parents=True)
+    (am_root / "src/owned/v1.py").write_text("v = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "impl v1"], check=True)
+
+    (am_feat / "1. Product Spec.md").write_text(
+        (am_feat / "1. Product Spec.md").read_text(encoding="utf-8").replace("Session issued", r"Session issued at C:\\"),
+        encoding="utf-8",
+    )
+    (am_feat / "2. Tech Spec.md").write_text(
+        (am_feat / "2. Tech Spec.md").read_text(encoding="utf-8").replace("Session service", "Session service v2"),
+        encoding="utf-8",
+    )
+    (am_feat / "4. Tasks.md").write_text(
+        (am_feat / "4. Tasks.md").read_text(encoding="utf-8").replace("`src/owned/`", "`src/owned/, src/amended/`"),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [sys.executable, "-B", str(am_stamp), "001-amend-l", "--by", "lead", "--evidence", "PR-11", "--amend", "--root", str(am_root)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    # Dirty pre-commit check after --amend fails with commit remediation hint
+    res_am_dirty = subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_am_dirty.returncode != 0 and "commit the approved spec pack before running --check-owned-paths" in res_am_dirty.stderr, res_am_dirty.stderr
+
+    # Commit the amended spec pack on feature branch -> passes --check-owned-paths!
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "amend 001-amend-l on feature branch"], check=True)
+    subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    # Follow-up owned commit + untracked .ai-template-backup.abc123/AGENTS.md in unignored repo still passes!
+    (am_root / "src/amended").mkdir(parents=True)
+    (am_root / "src/amended/v2.py").write_text("v = 2\n", encoding="utf-8")
+    (am_feat / "4. Tasks.md").write_text(
+        (am_feat / "4. Tasks.md").read_text(encoding="utf-8").replace("| T-01 | todo |", "| T-01 | done |"),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "impl amended path"], check=True)
+
+    backup_unignored = am_root / ".ai-template-backup.abc123"
+    backup_unignored.mkdir()
+    (backup_unignored / "AGENTS.md").write_text("# backup copy\n", encoding="utf-8")
+    porcelain_chk = subprocess.check_output(["git", "-C", str(am_root), "status", "--porcelain"], text=True)
+    assert ".ai-template-backup.abc123" in porcelain_chk, porcelain_chk
+    subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    shutil.rmtree(backup_unignored)
+
+    # Post-amendment tampering of 1. Product Spec.md or 2. Tech Spec.md (committed without re-stamping) MUST fail!
+    for tamper_spec in ("1. Product Spec.md", "2. Tech Spec.md"):
+        t_spec_p = am_feat / tamper_spec
+        orig_txt = t_spec_p.read_text(encoding="utf-8")
+        t_spec_p.write_text(orig_txt + "\n<!-- post-amend tamper -->\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(am_root), "commit", "-qm", f"tamper {tamper_spec} post-amend"], check=True)
+        res_post_am = subprocess.run(
+            [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+            capture_output=True,
+            text=True,
+        )
+        assert res_post_am.returncode != 0 and tamper_spec in res_post_am.stderr and "owned-paths violation" in res_post_am.stderr, res_post_am.stderr
+        subprocess.run(["git", "-C", str(am_root), "reset", "-q", "--hard", "HEAD~1"], check=True)
+
+    # Also verify Tier L --amend directly on main (dirty hint -> committed pass -> post-amend tamper fail)
+    subprocess.run(["git", "-C", str(am_root), "checkout", "-q", "main"], check=True)
+    (am_feat / "1. Product Spec.md").write_text(
+        (am_feat / "1. Product Spec.md").read_text(encoding="utf-8").replace("401 returned", "401 JSON error"),
+        encoding="utf-8",
+    )
+    (am_feat / "2. Tech Spec.md").write_text(
+        (am_feat / "2. Tech Spec.md").read_text(encoding="utf-8").replace("Auth middleware", "Auth middleware v2"),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [sys.executable, "-B", str(am_stamp), "001-amend-l", "--by", "lead", "--evidence", "PR-12", "--amend", "--root", str(am_root)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    res_main_dirty = subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_main_dirty.returncode != 0 and "commit the approved spec pack before running --check-owned-paths" in res_main_dirty.stderr, res_main_dirty.stderr
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "amend 001-amend-l directly on main"], check=True)
+    (am_root / "src/owned").mkdir(parents=True, exist_ok=True)
+    (am_root / "src/owned/main_ok.py").write_text("ok = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "owned edit after amend on main"], check=True)
+    res_main_am_ok = subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_main_am_ok.returncode == 0, res_main_am_ok.stderr
+
+    (am_feat / "2. Tech Spec.md").write_text(
+        (am_feat / "2. Tech Spec.md").read_text(encoding="utf-8") + "\n<!-- main post-amend tamper -->\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(am_root), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(am_root), "commit", "-qm", "tamper tech spec on main"], check=True)
+    res_main_tamper = subprocess.run(
+        [sys.executable, "-B", str(am_vdocs), "--require-tasks", "--strict", "--check-owned-paths", "--feature", "001-amend-l", "--root", str(am_root)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_main_tamper.returncode != 0 and "2. Tech Spec.md" in res_main_tamper.stderr, res_main_tamper.stderr
+
+    # 8B. Monorepo subdirectory (root != git_top) full tampering enforcement + zero-touch stamp-spec.py --dry-run + RT-03 traversal block
+    mono2_git = v7_base / "v71-monorepo"
+    mono2_git.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(mono2_git), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(mono2_git), "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+    subprocess.run(["git", "-C", str(mono2_git), "config", "user.email", "v71@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(mono2_git), "config", "user.name", "V71 Test"], check=True)
+    mono2_pkg = mono2_git / "packages/app-a"
+    mono2_tools = mono2_pkg / "tools"
+    mono2_tools.mkdir(parents=True)
+    for tname in ("docs_validation.py", "validate-docs.py", "stamp-spec.py"):
+        (mono2_tools / tname).write_text((tools_src_dir / tname).read_text(encoding="utf-8"), encoding="utf-8")
+    (mono2_pkg / "AGENTS.md").write_text("# App-A Agents\n", encoding="utf-8")
+    (mono2_pkg / "src").mkdir()
+    (mono2_pkg / "src/big_asset.bin").write_bytes(b"x" * 128)
+    mono2_feat1 = mono2_pkg / "docs/current/05 - Product Features/001-mono-approved"
+    write_mini_spec(mono2_feat1, fm=DRAFT_FM)
+    mono2_guide = mono2_pkg / "docs/current/guide.md"
+    mono2_guide.write_text(
+        "---\nstatus: active\nowner: eng\n---\n# Guide\n\nSee [AGENTS](../../AGENTS.md).\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(mono2_git), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(mono2_git), "commit", "-qm", "draft mono app-a"], check=True)
+
+    mono2_stamp = mono2_tools / "stamp-spec.py"
+    mono2_vdocs = mono2_tools / "validate-docs.py"
+    subprocess.run(
+        [sys.executable, "-B", str(mono2_stamp), "001-mono-approved", "--by", "lead", "--evidence", "PR-201", "--root", str(mono2_pkg)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    subprocess.run(["git", "-C", str(mono2_git), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(mono2_git), "commit", "-qm", "approve 001-mono-approved"], check=True)
+    subprocess.run(
+        [sys.executable, "-B", str(mono2_vdocs), "--require-tasks", "--strict", "--root", str(mono2_pkg)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+    # Nonexistent 40-hex source_revision inside packages/app-a caught by --strict!
+    mono2_spec_p = mono2_feat1 / "1. Mini Spec.md"
+    orig_mono2_spec = mono2_spec_p.read_text(encoding="utf-8")
+    real_mono2_sha = parse_frontmatter(orig_mono2_spec)["source_revision"]
+    mono2_spec_p.write_text(orig_mono2_spec.replace(real_mono2_sha, "deadbeef" * 5), encoding="utf-8")
+    res_mono2_badsha = subprocess.run(
+        [sys.executable, "-B", str(mono2_vdocs), "--require-tasks", "--strict", "--root", str(mono2_pkg)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_mono2_badsha.returncode != 0 and ("deadbeef" in res_mono2_badsha.stderr or "source_revision" in res_mono2_badsha.stderr), res_mono2_badsha.stderr
+
+    # Post-approval Acceptance criteria tampering inside packages/app-a caught by --strict!
+    mono2_spec_p.write_text(orig_mono2_spec.replace("200 OK", "201 Tampered"), encoding="utf-8")
+    res_mono2_tamper = subprocess.run(
+        [sys.executable, "-B", str(mono2_vdocs), "--require-tasks", "--strict", "--root", str(mono2_pkg)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_mono2_tamper.returncode != 0 and "Acceptance criteria" in res_mono2_tamper.stderr, res_mono2_tamper.stderr
+    mono2_spec_p.write_text(orig_mono2_spec, encoding="utf-8")
+
+    # Zero-touch stamp-spec.py --dry-run: creates ONLY 'docs' inside staging temp directory while resolving ../../AGENTS.md via external_root
+    mono2_feat2 = mono2_pkg / "docs/current/05 - Product Features/002-mono-dry"
+    write_mini_spec(mono2_feat2, fm=DRAFT_FM)
+    _stamp_spec = _ilu.spec_from_file_location("_stamp_mod_test", str(mono2_stamp))
+    assert _stamp_spec is not None and _stamp_spec.loader is not None
+    _stamp_mod = _ilu.module_from_spec(_stamp_spec)
+    _stamp_spec.loader.exec_module(_stamp_mod)
+
+    staged_top_entries: list[list[str]] = []
+    _orig_tempdir = _stamp_mod.tempfile.TemporaryDirectory
+
+    class _InspectTempDir:
+        def __init__(self, *a, **kw):
+            self._inner = _orig_tempdir(*a, **kw)
+            self.name = self._inner.name
+
+        def __enter__(self):
+            return self._inner.__enter__()
+
+        def __exit__(self, exc_type, exc, tb):
+            staged_top_entries.append(sorted(p.name for p in Path(self.name).iterdir()))
+            return self._inner.__exit__(exc_type, exc, tb)
+
+    _stamp_mod.tempfile.TemporaryDirectory = _InspectTempDir
+    try:
+        rc_dry = _stamp_mod.main(
+            ["002-mono-dry", "--by", "lead", "--evidence", "PR-202", "--dry-run", "--root", str(mono2_pkg)]
+        )
+    finally:
+        _stamp_mod.tempfile.TemporaryDirectory = _orig_tempdir
+    assert rc_dry == 0, rc_dry
+    assert staged_top_entries == [["docs"]], f"expected ONLY ['docs'] in --dry-run temp root, got {staged_top_entries}"
+
+    # RT-03: ../../../docs/current/deleted.md escapes project root and ../../docs/current/deleted.md cannot fall back to external_root/docs
+    orig_guide_txt = mono2_guide.read_text(encoding="utf-8")
+    mono2_guide.write_text(orig_guide_txt + "\nBad [traversal](../../../docs/current/deleted.md).\n", encoding="utf-8")
+    res_rt03_esc = subprocess.run(
+        [sys.executable, "-B", str(mono2_stamp), "002-mono-dry", "--by", "lead", "--evidence", "PR-203", "--dry-run", "--root", str(mono2_pkg)],
+        capture_output=True,
+        text=True,
+    )
+    assert res_rt03_esc.returncode != 0 and "escapes project root" in res_rt03_esc.stderr, res_rt03_esc.stderr
+
+    # Even if external_root/docs/current/deleted.md exists while absent from staged tmp_root/docs, external_root fallback refuses docs/ targets
+    mono2_guide.write_text(orig_guide_txt, encoding="utf-8")
+    ghost_doc = mono2_pkg / "docs/current/deleted.md"
+    ghost_doc.write_text("---\nstatus: active\nowner: eng\n---\n# Ghost\n", encoding="utf-8")
+    with tempfile.TemporaryDirectory() as rt03_td:
+        rt03_stage = Path(rt03_td).resolve()
+        shutil.copytree(mono2_pkg / "docs", rt03_stage / "docs")
+        (rt03_stage / "docs/current/deleted.md").unlink()
+        staged_g = rt03_stage / "docs/current/guide.md"
+        staged_g.write_text(orig_guide_txt + "\nGhost [doc](../../docs/current/deleted.md).\n", encoding="utf-8")
+        expect_fail(
+            lambda: validate_links(rt03_stage, rt03_stage / "docs", [staged_g], external_root=mono2_pkg),
+            "RT-03 external_root docs fallback block",
+            "missing Markdown link target",
+        )
+    ghost_doc.unlink()
 
 print("PASS: semantic Clarify gate, Mini-Spec, Git tampering, URI/embed, task-evidence, stamp-spec, owned-paths, record-evidence, and [P] concurrency fixtures")
 PY

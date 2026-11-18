@@ -1,6 +1,7 @@
 """Shared, portable Markdown validation for repository and installed docs."""
 
 import json
+import os
 import posixpath
 import re
 import subprocess
@@ -320,12 +321,27 @@ def _iter_h2_sections(markdown_text: str, heading: str) -> list[str]:
 
 def _split_table_row(line: str) -> list[str] | None:
     stripped = line.strip()
-    if not (stripped.startswith("|") and stripped.endswith("|") and not stripped.endswith(r"\|")):
+    if not stripped.startswith("|") or not stripped.endswith("|"):
         return None
-    parts = re.split(r"(?<!\\)\|", stripped)[1:-1]
-    if not parts:
+    m_tail = re.search(r"(\\*)\|$", stripped)
+    if m_tail and len(m_tail.group(1)) % 2 == 1:
         return None
-    return [cell.replace(r"\|", "|").strip() for cell in parts]
+    cells: list[str] = []
+    last = 1
+    for m in re.finditer(r"(\\*)\|", stripped[1:]):
+        bs = m.group(1)
+        if len(bs) % 2 == 1:
+            continue
+        pipe_idx = 1 + m.end() - 1
+        raw_cell = stripped[last:pipe_idx]
+        unescaped = re.sub(
+            r"(\\*)\|",
+            lambda pm: pm.group(0) if len(pm.group(1)) % 2 == 0 else pm.group(1)[:-1] + "|",
+            raw_cell,
+        )
+        cells.append(unescaped.strip())
+        last = pipe_idx + 1
+    return cells or None
 
 
 def _is_separator_row(cells: list[str]) -> bool:
@@ -411,10 +427,76 @@ def _parse_markdown_link_destination(raw_inside: str) -> str:
         gt = inside.find(">")
         if gt != -1:
             return inside[1:gt].strip()
-    m_title = re.match(r'^(\S+?)(?:\s+(?:"[^"]*"|\'[^\']*\'|\([^)]*\)))?$', inside)
-    if m_title:
-        return m_title.group(1).strip()
-    return inside
+    no_title = re.sub(r"""[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*')$""", "", inside).strip()
+    m_paren_title = re.match(r"^(\S+?)[ \t]+\([^)\r\n]*\)$", no_title)
+    if m_paren_title:
+        return m_paren_title.group(1).strip()
+    return no_title
+
+
+def _iter_markdown_link_targets(cleaned: str) -> list[str]:
+    targets: list[str] = []
+    idx = 0
+    n = len(cleaned)
+    while idx < n:
+        lb = cleaned.find("[", idx)
+        if lb == -1:
+            break
+        bs = 0
+        k = lb - 1
+        while k >= 0 and cleaned[k] == "\\":
+            bs += 1
+            k -= 1
+        if bs % 2 == 1:
+            idx = lb + 1
+            continue
+        rb = lb + 1
+        while rb < n and cleaned[rb] not in "\r\n":
+            if cleaned[rb] == "\\" and rb + 1 < n and cleaned[rb + 1] not in "\r\n":
+                rb += 2
+                continue
+            if cleaned[rb] in "[]":
+                break
+            rb += 1
+        if rb >= n or cleaned[rb] != "]" or rb + 1 >= n or cleaned[rb + 1] != "(":
+            idx = lb + 1
+            continue
+        p = rb + 2
+        while p < n and cleaned[p] in " \t":
+            p += 1
+        if p < n and cleaned[p] == "<":
+            gt = p + 1
+            while gt < n and cleaned[gt] not in ">\r\n":
+                if cleaned[gt] == "\\" and gt + 1 < n and cleaned[gt + 1] not in "\r\n":
+                    gt += 2
+                    continue
+                gt += 1
+            if gt < n and cleaned[gt] == ">":
+                tail_m = re.match(r"""^[ \t]*(?:(?:"[^"\r\n]*"|'[^'\r\n]*')[ \t]*)?\)""", cleaned[gt + 1 :])
+                if tail_m is not None:
+                    targets.append(cleaned[p + 1 : gt].strip())
+                    idx = gt + 1 + tail_m.end()
+                    continue
+        else:
+            depth = 1
+            q = p
+            while q < n and depth > 0 and cleaned[q] not in "\r\n":
+                if cleaned[q] == "\\" and q + 1 < n and cleaned[q + 1] not in "\r\n":
+                    q += 2
+                    continue
+                if cleaned[q] == "(":
+                    depth += 1
+                elif cleaned[q] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                q += 1
+            if depth == 0:
+                targets.append(_parse_markdown_link_destination(cleaned[p:q]))
+                idx = q + 1
+                continue
+        idx = rb + 1
+    return targets
 
 
 def _walk_lexical_no_symlink(
@@ -459,9 +541,19 @@ def _ensure_within_root_no_symlink(root_resolved: Path, start_dir: Path, rel_tar
     )
 
 
-def validate_links(root: Path, docs_root: Path, files: list[Path]) -> None:
+def validate_links(
+    root: Path,
+    docs_root: Path,
+    files: list[Path],
+    *,
+    external_root: Path | None = None,
+) -> None:
     root_resolved = root.resolve()
     docs_resolved = docs_root.resolve()
+    ext_resolved: Path | None = None
+    if external_root is not None:
+        require(not external_root.is_symlink(), f"external root cannot be a symlink: {external_root}")
+        ext_resolved = external_root.resolve()
     relative_paths = {path.resolve().relative_to(docs_resolved).with_suffix("").as_posix() for path in files}
     stems: dict[str, list[Path]] = {}
     for path in files:
@@ -480,7 +572,6 @@ def validate_links(root: Path, docs_root: Path, files: list[Path]) -> None:
             assets_by_name.setdefault(asset.name, []).append(asset)
 
     wiki = re.compile(r"(!?)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
-    markdown = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 
     for path in files:
         rel_doc_label = path.relative_to(root)
@@ -542,8 +633,7 @@ def validate_links(root: Path, docs_root: Path, files: list[Path]) -> None:
             prefix = "!" if is_embed else ""
             raise ValueError(f"{rel_doc_label}: unresolved or ambiguous link {prefix}[[{raw_target}]]")
 
-        for match in markdown.finditer(content):
-            dest = _parse_markdown_link_destination(match.group(1))
+        for dest in _iter_markdown_link_targets(content):
             if not dest or dest.startswith("#"):
                 continue
             target_before_frag = dest.split("#", 1)[0].strip()
@@ -576,7 +666,21 @@ def validate_links(root: Path, docs_root: Path, files: list[Path]) -> None:
                 decoded,
                 str(rel_doc_label),
             )
-            require(resolved.is_file(), f"{rel_doc_label}: missing Markdown link target {target_before_frag}")
+            found = resolved.is_file()
+            if (
+                not found
+                and ext_resolved is not None
+                and not resolved.is_relative_to(docs_resolved)
+            ):
+                rel_from_root = resolved.relative_to(root_resolved).as_posix()
+                ext_target = _ensure_within_root_no_symlink(
+                    ext_resolved,
+                    ext_resolved,
+                    rel_from_root,
+                    str(rel_doc_label),
+                )
+                found = ext_target.is_file()
+            require(found, f"{rel_doc_label}: missing Markdown link target {target_before_frag}")
 
 
 def _strip_mermaid_preamble(rel_label: Path | str, diagram: str) -> str:
@@ -841,42 +945,111 @@ def _normalize_task_contract(rel_path: Path | str, raw_text: str) -> list[tuple[
     return out
 
 
+def _verify_git_root_no_symlink(git_root: Path, git_top: Path, *, err_prefix: str) -> Path:
+    require(not git_root.is_symlink(), f"{err_prefix}: project root cannot be a symlink: {git_root}")
+    abs_git_root = Path(os.path.abspath(git_root))
+    tail_parts: tuple[str, ...] | None = None
+    for candidate in (abs_git_root, *abs_git_root.parents):
+        try:
+            if candidate.is_symlink():
+                continue
+            if candidate.exists() and candidate.resolve() == git_top:
+                tail_parts = abs_git_root.parts[len(candidate.parts) :]
+                break
+        except OSError:
+            continue
+    if tail_parts is None:
+        raise ValueError(f"{err_prefix}: symlinked directory between git toplevel and project root refused")
+    return _walk_lexical_no_symlink(
+        git_top,
+        git_top,
+        "/".join(tail_parts),
+        escape_msg=f"{err_prefix}: project root escapes git toplevel",
+        symlink_msg=f"{err_prefix}: symlinked directory between git toplevel and project root refused",
+        err_prefix=err_prefix,
+    )
+
+
+def _resolve_git_spec_path(git_root: Path, spec_rel_to_root: str) -> tuple[Path, str] | None:
+    if not spec_rel_to_root or spec_rel_to_root.startswith(":"):
+        return None
+    require(not git_root.is_symlink(), f"git_spec_path: project root cannot be a symlink: {git_root}")
+    git_top = resolve_git_toplevel(git_root)
+    if git_top is None:
+        return None
+    try:
+        git_root_probe = git_root.resolve()
+    except OSError:
+        return None
+    if not git_root_probe.is_relative_to(git_top):
+        return None
+    git_root_res = _verify_git_root_no_symlink(git_root, git_top, err_prefix="git_spec_path")
+    rel_clean = spec_rel_to_root.strip("/")
+    if not rel_clean:
+        return None
+    for seg in rel_clean.split("/"):
+        if seg in {"", ".", ".."}:
+            return None
+    git_rel = (git_root_res.relative_to(git_top) / rel_clean).as_posix()
+    if git_rel.startswith("./"):
+        git_rel = git_rel[2:]
+    if not git_rel or git_rel == "." or git_rel.startswith(":"):
+        return None
+    return git_top, git_rel
+
+
+def _find_approved_commit_entry(
+    git_root: Path,
+    posix_spec_path: str,
+    source_revision: str | None = None,
+) -> tuple[str, str, dict[str, str]] | None:
+    resolved_git = _resolve_git_spec_path(git_root, posix_spec_path)
+    if resolved_git is None:
+        return None
+    git_top, git_rel = resolved_git
+    try:
+        proc = subprocess.run(
+            ["git", "--literal-pathspecs", "-C", str(git_top), "log", "--format=%H", "--reverse", "--", git_rel],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+
+    target_rev = source_revision.strip() if source_revision is not None else None
+    for sha in proc.stdout.splitlines():
+        sha_clean = sha.strip().lower()
+        if not HEX40_RE.fullmatch(sha_clean) or re.fullmatch(r"0+", sha_clean):
+            continue
+        try:
+            show_proc = subprocess.run(
+                ["git", "--literal-pathspecs", "-C", str(git_top), "show", f"{sha_clean}:{git_rel}"],
+                capture_output=True,
+            )
+        except OSError:
+            return None
+        if show_proc.returncode != 0:
+            continue
+        hist_raw = show_proc.stdout.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        hist_fm = parse_frontmatter(hist_raw)
+        if hist_fm.get("status", "").strip().lower() != "approved":
+            continue
+        if target_rev is not None and str(hist_fm.get("source_revision", "")).strip() != target_rev:
+            continue
+        return sha_clean, hist_raw, hist_fm
+    return None
+
+
 def _find_earliest_approved_baseline(
     root: Path,
     posix_spec_path: str,
     source_revision: str,
 ) -> str | None:
     """Return historical file text at the earliest Git commit where status=approved & source_revision matches."""
-    commit_candidates: list[str] = []
-    for log_cmd in (
-        ["git", "log", "--format=%H", "--reverse", "-S", source_revision, "--", posix_spec_path],
-        ["git", "log", "--format=%H", "--reverse", "--", posix_spec_path],
-    ):
-        proc = subprocess.run(log_cmd, cwd=root, capture_output=True, text=True)
-        if proc.returncode == 0 and proc.stdout.strip():
-            for sha in proc.stdout.splitlines():
-                sha_clean = sha.strip()
-                if sha_clean and sha_clean not in commit_candidates:
-                    commit_candidates.append(sha_clean)
-        if commit_candidates:
-            for sha in commit_candidates:
-                show_proc = subprocess.run(
-                    ["git", "show", f"{sha}:{posix_spec_path}"],
-                    cwd=root,
-                    capture_output=True,
-                    text=True,
-                )
-                if show_proc.returncode != 0:
-                    continue
-                hist_raw = show_proc.stdout.replace("\r\n", "\n").replace("\r", "\n")
-                hist_fm = parse_frontmatter(hist_raw)
-                if (
-                    hist_fm.get("status", "").strip().lower() == "approved"
-                    and hist_fm.get("source_revision", "").strip() == source_revision
-                ):
-                    return hist_raw
-            commit_candidates.clear()
-    return None
+    entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=source_revision)
+    return entry[1] if entry is not None else None
 
 
 def _find_any_approved_history(
@@ -884,33 +1057,8 @@ def _find_any_approved_history(
     posix_spec_path: str,
 ) -> tuple[str, dict[str, str]] | None:
     """Return (raw_text, frontmatter) of the earliest historical status=approved commit, if any."""
-    if not (root / ".git").exists():
-        return None
-    proc = subprocess.run(
-        ["git", "log", "--format=%H", "--reverse", "--", posix_spec_path],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
-    for sha in proc.stdout.splitlines():
-        sha_clean = sha.strip()
-        if not sha_clean:
-            continue
-        show_proc = subprocess.run(
-            ["git", "show", f"{sha_clean}:{posix_spec_path}"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-        )
-        if show_proc.returncode != 0:
-            continue
-        hist_raw = show_proc.stdout.replace("\r\n", "\n").replace("\r", "\n")
-        hist_fm = parse_frontmatter(hist_raw)
-        if hist_fm.get("status", "").strip().lower() == "approved":
-            return hist_raw, hist_fm
-    return None
+    entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=None)
+    return (entry[1], entry[2]) if entry is not None else None
 
 
 def _verify_source_revision_and_baseline(
@@ -921,6 +1069,8 @@ def _verify_source_revision_and_baseline(
     strict: bool,
     status_label: str,
     require_git_baseline: bool = False,
+    *,
+    git_root: Path | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     rel_path = spec_path.relative_to(root)
@@ -948,13 +1098,27 @@ def _verify_source_revision_and_baseline(
         )
         return warnings
 
-    if not (root / ".git").exists():
+    effective_git_root = root if git_root is None else git_root
+    posix_spec_path = rel_path.as_posix()
+    git_ctx = _resolve_git_spec_path(effective_git_root, posix_spec_path)
+    if git_ctx is None:
+        try:
+            probe_root = effective_git_root.resolve()
+        except OSError:
+            probe_root = effective_git_root
+        if any((cand / ".git").exists() for cand in (probe_root, *probe_root.parents)):
+            try:
+                subprocess.run(["git", "--version"], capture_output=True, text=True)
+            except OSError:
+                if strict:
+                    raise ValueError(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+                warnings.append(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
         return warnings
 
+    git_top, _git_rel = git_ctx
     try:
         cat_proc = subprocess.run(
-            ["git", "cat-file", "-e", f"{src_rev}^{{commit}}"],
-            cwd=root,
+            ["git", "--literal-pathspecs", "-C", str(git_top), "cat-file", "-e", f"{src_rev}^{{commit}}"],
             capture_output=True,
             text=True,
         )
@@ -966,8 +1130,7 @@ def _verify_source_revision_and_baseline(
 
     if cat_proc.returncode != 0:
         shallow_proc = subprocess.run(
-            ["git", "rev-parse", "--is-shallow-repository"],
-            cwd=root,
+            ["git", "--literal-pathspecs", "-C", str(git_top), "rev-parse", "--is-shallow-repository"],
             capture_output=True,
             text=True,
         )
@@ -979,8 +1142,7 @@ def _verify_source_revision_and_baseline(
             f"{rel_path}: source_revision '{src_rev}' is not a valid commit object in Git history"
         )
 
-    posix_spec_path = rel_path.as_posix()
-    baseline_raw = _find_earliest_approved_baseline(root, posix_spec_path, src_rev)
+    baseline_raw = _find_earliest_approved_baseline(effective_git_root, posix_spec_path, src_rev)
     if baseline_raw is None:
         require(
             not require_git_baseline,
@@ -1015,13 +1177,15 @@ def _check_approved_source_revision(
     raw: str,
     fm: dict[str, str],
     strict: bool,
+    *,
+    git_root: Path | None = None,
 ) -> list[str]:
     if spec_path.name not in SPEC_PACK_FILES:
         return []
     if fm.get("status", "").strip().lower() != "approved":
         return []
     return _verify_source_revision_and_baseline(
-        root, spec_path, raw, fm, strict=strict, status_label="approved"
+        root, spec_path, raw, fm, strict=strict, status_label="approved", git_root=git_root
     )
 
 
@@ -1286,11 +1450,14 @@ def _check_archived_spec_history(
     root: Path,
     spec_path: Path,
     fm: dict[str, str],
+    *,
+    git_root: Path | None = None,
 ) -> None:
     if spec_path.name not in SPEC_PACK_FILES:
         return
+    effective_git_root = root if git_root is None else git_root
     rel_path = spec_path.relative_to(root)
-    hist = _find_any_approved_history(root, rel_path.as_posix())
+    hist = _find_any_approved_history(effective_git_root, rel_path.as_posix())
     if hist is None:
         return
     for field in ("approved_by", "source_revision"):
@@ -1307,14 +1474,17 @@ def _validate_superseded_by(
     raw: str,
     fm: dict[str, str],
     strict: bool,
+    *,
+    git_root: Path | None = None,
 ) -> tuple[list[str], tuple[str, str]]:
     warnings: list[str] = []
     root_resolved = root.resolve()
+    effective_git_root = root if git_root is None else git_root
     rel_path = source_path.relative_to(root)
 
     was_formerly_approved = False
     if source_path.name in SPEC_PACK_FILES:
-        hist = _find_any_approved_history(root, rel_path.as_posix())
+        hist = _find_any_approved_history(effective_git_root, rel_path.as_posix())
         has_src_rev = bool(fm.get("source_revision", "").strip())
         was_formerly_approved = has_src_rev or (hist is not None)
         if was_formerly_approved:
@@ -1333,6 +1503,7 @@ def _validate_superseded_by(
                     strict=strict,
                     status_label="superseded",
                     require_git_baseline=(hist is not None),
+                    git_root=effective_git_root,
                 )
             )
 
@@ -1405,6 +1576,8 @@ def _validate_supersedes_field(
     spec_path: Path,
     fm: dict[str, str],
     strict: bool,
+    *,
+    git_root: Path | None = None,
 ) -> Path | None:
     raw_sup = fm.get("supersedes", "").strip()
     if not raw_sup:
@@ -1485,7 +1658,13 @@ def _validate_supersedes_field(
     return old_dir
 
 
-def validate_clarify_gate(root: Path, files: list[Path], strict: bool = False) -> list[str]:
+def validate_clarify_gate(
+    root: Path,
+    files: list[Path],
+    strict: bool = False,
+    *,
+    git_root: Path | None = None,
+) -> list[str]:
     warnings: list[str] = []
     for path in files:
         raw = read_markdown(path)
@@ -1514,16 +1693,18 @@ def validate_clarify_gate(root: Path, files: list[Path], strict: bool = False) -
             )
 
         if in_current and fm.get("supersedes", "").strip():
-            _validate_supersedes_field(root, path, fm, strict=strict)
+            _validate_supersedes_field(root, path, fm, strict=strict, git_root=git_root)
 
         if status == "superseded":
             if in_current:
-                sup_warnings, _ = _validate_superseded_by(root, path, raw, fm, strict=strict)
+                sup_warnings, _ = _validate_superseded_by(
+                    root, path, raw, fm, strict=strict, git_root=git_root
+                )
                 warnings.extend(sup_warnings)
             continue
         if status == "archived":
             if in_current:
-                _check_archived_spec_history(root, path, fm)
+                _check_archived_spec_history(root, path, fm, git_root=git_root)
             continue
         if status not in {"draft", "approved", "example"}:
             continue
@@ -1551,7 +1732,11 @@ def validate_clarify_gate(root: Path, files: list[Path], strict: bool = False) -
                         f"{rel_path}: status: approved forbids placeholder value '{val}' in '{field}'",
                     )
             if status == "approved":
-                warnings.extend(_check_approved_source_revision(root, path, raw, fm, strict=strict))
+                warnings.extend(
+                    _check_approved_source_revision(
+                        root, path, raw, fm, strict=strict, git_root=git_root
+                    )
+                )
 
         require(
             not re.search(r"\[NEEDS CLARIFICATION\b", stripped, flags=re.I),
@@ -1572,6 +1757,8 @@ def validate_feature_folder(
     feature_dir: Path,
     require_tasks: bool = False,
     strict: bool = False,
+    *,
+    git_root: Path | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     effective_strict = strict or require_tasks
@@ -1601,7 +1788,9 @@ def validate_feature_folder(
             f"{p_mini.relative_to(root)}: invalid or missing frontmatter status '{st_mini or 'missing'}' "
             f"(expected one of: {', '.join(sorted(VALID_SPEC_STATUSES))})",
         )
-        warnings.extend(validate_clarify_gate(root, [p_mini], strict=effective_strict))
+        warnings.extend(
+            validate_clarify_gate(root, [p_mini], strict=effective_strict, git_root=git_root)
+        )
         if st_mini in {"superseded", "archived"}:
             return warnings
 
@@ -1678,7 +1867,9 @@ def validate_feature_folder(
                 f"{rel_feature}: all specs in a 4-file pack must declare matching frontmatter 'supersedes'",
             )
             resolved_sup_dirs = {
-                _validate_supersedes_field(root, p, frontmatters[p], strict=effective_strict)
+                _validate_supersedes_field(
+                    root, p, frontmatters[p], strict=effective_strict, git_root=git_root
+                )
                 for p in present
             }
             require(
@@ -1703,6 +1894,7 @@ def validate_feature_folder(
                     raw_texts[spec_path],
                     frontmatters[spec_path],
                     strict=effective_strict,
+                    git_root=git_root,
                 )
                 warnings.extend(sup_w)
                 scopes.append(scope)
@@ -1712,7 +1904,9 @@ def validate_feature_folder(
             )
         elif in_current_pack and only_status == "archived":
             for spec_path in present:
-                _check_archived_spec_history(root, spec_path, frontmatters[spec_path])
+                _check_archived_spec_history(
+                    root, spec_path, frontmatters[spec_path], git_root=git_root
+                )
         return warnings
 
     ready_statuses = {st for st in statuses.values() if st in {"approved", "example"}}
@@ -1740,6 +1934,7 @@ def validate_feature_folder(
                         raw_texts[spec_path],
                         frontmatters[spec_path],
                         strict=effective_strict,
+                        git_root=git_root,
                     )
                 )
         if not p4.is_file():
@@ -1869,6 +2064,8 @@ def validate_feature_specs(
     features_root: Path,
     require_tasks: bool = False,
     strict: bool = False,
+    *,
+    git_root: Path | None = None,
 ) -> list[str]:
     if not features_root.is_dir():
         return []
@@ -1897,6 +2094,7 @@ def validate_feature_specs(
                     child,
                     require_tasks=require_tasks,
                     strict=strict,
+                    git_root=git_root,
                 )
             )
     return warnings
@@ -1946,51 +2144,23 @@ def resolve_git_toplevel(root: Path) -> Path | None:
 
 def _find_earliest_approved_commit_sha(root: Path, posix_spec_path: str) -> str | None:
     """Return the earliest 40-hex commit SHA where posix_spec_path had status: approved."""
-    if not posix_spec_path or posix_spec_path.startswith(":"):
-        return None
-    git_top = resolve_git_toplevel(root)
-    if git_top is None:
-        return None
-    try:
-        root_resolved = root.resolve()
-        spec_abs = root_resolved / posix_spec_path
-    except OSError:
-        return None
-    if not spec_abs.is_relative_to(git_top):
-        return None
-    git_rel = spec_abs.relative_to(git_top).as_posix()
-    if not git_rel or git_rel.startswith(":"):
-        return None
+    entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=None)
+    return entry[0] if entry is not None else None
 
-    try:
-        proc = subprocess.run(
-            ["git", "--literal-pathspecs", "-C", str(git_top), "log", "--format=%H", "--reverse", "--", git_rel],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
 
-    for sha in proc.stdout.splitlines():
-        sha_clean = sha.strip().lower()
-        if not HEX40_RE.fullmatch(sha_clean) or re.fullmatch(r"0+", sha_clean):
-            continue
-        try:
-            show_proc = subprocess.run(
-                ["git", "--literal-pathspecs", "-C", str(git_top), "show", f"{sha_clean}:{git_rel}"],
-                capture_output=True,
-            )
-        except OSError:
-            return None
-        if show_proc.returncode != 0:
-            continue
-        hist_raw = show_proc.stdout.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-        hist_fm = parse_frontmatter(hist_raw)
-        if hist_fm.get("status", "").strip().lower() == "approved":
-            return sha_clean
-    return None
+def _find_matching_approved_commit_sha(
+    root: Path,
+    posix_spec_path: str,
+    source_revision: str | None,
+) -> str | None:
+    """Return the earliest 40-hex commit SHA where posix_spec_path had status: approved and matching source_revision."""
+    if source_revision is not None:
+        src_clean = source_revision.strip().lower()
+        if HEX40_RE.fullmatch(src_clean) and not re.fullmatch(r"0+", src_clean):
+            entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=src_clean)
+            if entry is not None:
+                return entry[0]
+    return _find_earliest_approved_commit_sha(root, posix_spec_path)
 
 
 def _collect_pack_spec_files(feature_dir: Path, root_resolved: Path) -> tuple[list[Path], bool]:
@@ -2252,6 +2422,18 @@ def resolve_active_feature_dir(
     return remaining[0]
 
 
+def _is_template_backup_rel_path(raw_rel: str) -> bool:
+    """Return True if raw_rel is a clean project-root-relative path inside .ai-template-backup.*."""
+    if not raw_rel or raw_rel.startswith("/") or "\\" in raw_rel:
+        return False
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in raw_rel):
+        return False
+    parts = raw_rel.split("/")
+    if any(seg in {"", ".", ".."} for seg in parts):
+        return False
+    return parts[0].startswith(".ai-template-backup.")
+
+
 def _parse_git_raw_z_paths(raw_bytes: bytes, label: str) -> list[str]:
     """Parse git diff --no-renames --raw -z output and reject symlinks (120000) or gitlinks (160000)."""
     tokens = raw_bytes.split(b"\0")
@@ -2271,16 +2453,21 @@ def _parse_git_raw_z_paths(raw_bytes: bytes, label: str) -> list[str]:
         require(len(fields) >= 5, f"{label}: malformed git diff --raw metadata {meta_str!r}")
         new_mode = fields[1]
         status_tok = fields[4]
-        if new_mode in {"120000", "160000"}:
-            kind = "symlink" if new_mode == "120000" else "submodule/gitlink"
-            preview = path_b.decode("utf-8", errors="replace")
-            raise ValueError(f"refused {kind} (mode {new_mode}) in {label}: {preview}")
         if status_tok.startswith(("R", "C")) and idx < len(tokens):
             idx += 1
         try:
             rel_str = path_b.decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:
+            if new_mode in {"120000", "160000"}:
+                kind = "symlink" if new_mode == "120000" else "submodule/gitlink"
+                preview = path_b.decode("utf-8", errors="replace")
+                raise ValueError(f"refused {kind} (mode {new_mode}) in {label}: {preview}") from exc
             raise ValueError(f"{label}: non-UTF-8 changed path refused") from exc
+        if _is_template_backup_rel_path(rel_str):
+            continue
+        if new_mode in {"120000", "160000"}:
+            kind = "symlink" if new_mode == "120000" else "submodule/gitlink"
+            raise ValueError(f"refused {kind} (mode {new_mode}) in {label}: {rel_str}")
         paths.append(rel_str)
     return paths
 
@@ -2420,9 +2607,12 @@ def _collect_working_and_staged_paths(root_resolved: Path, has_head: bool) -> li
         if not tok:
             continue
         try:
-            raw_changed_strings.append(tok.decode("utf-8", errors="strict"))
+            untracked_rel = tok.decode("utf-8", errors="strict")
         except UnicodeDecodeError as exc:
             raise ValueError("non-UTF-8 untracked file path refused") from exc
+        if _is_template_backup_rel_path(untracked_rel):
+            continue
+        raw_changed_strings.append(untracked_rel)
     return raw_changed_strings
 
 
@@ -2509,9 +2699,11 @@ def _resolve_owned_paths_diff_base(
                     return mb
 
     tasks_rel_posix = tasks_file.relative_to(root_resolved).as_posix()
-    candidate_base = _find_earliest_approved_commit_sha(root_resolved, tasks_rel_posix)
+    spec_src_rev = fms[tasks_file].get("source_revision", "").strip().lower()
+    candidate_base = _find_matching_approved_commit_sha(
+        root_resolved, tasks_rel_posix, spec_src_rev
+    )
     if candidate_base is None:
-        spec_src_rev = fms[tasks_file].get("source_revision", "").strip().lower()
         if HEX40_RE.fullmatch(spec_src_rev) and not re.fullmatch(r"0+", spec_src_rev):
             candidate_base = spec_src_rev
     require(
@@ -2559,13 +2751,14 @@ def validate_owned_paths_diff(
     require(not root.is_symlink(), f"repository root cannot be a symlink: {root}")
     root_resolved = root.resolve()
 
-    git_top = resolve_git_toplevel(root_resolved)
+    git_top = resolve_git_toplevel(root)
     require(git_top is not None, "--check-owned-paths requires a Git repository")
     assert git_top is not None
     require(
         root_resolved.is_relative_to(git_top),
         f"project root {root_resolved} is outside Git toplevel {git_top}",
     )
+    _verify_git_root_no_symlink(root, git_top, err_prefix="validate_owned_paths_diff")
 
     target_dir = _resolve_owned_paths_target_dir(root_resolved, feature_dir, feature_arg)
     spec_files, is_mini = _collect_pack_spec_files(target_dir, root_resolved)
@@ -2634,7 +2827,9 @@ def validate_owned_paths_diff(
     head_sha = head_proc.stdout.strip().lower() if has_head else None
     raw_dirty_or_staged = _collect_working_and_staged_paths(root_resolved, has_head)
     dirty_or_staged_set = {
-        _validate_changed_rel_path(root_resolved, raw_str) for raw_str in raw_dirty_or_staged
+        _validate_changed_rel_path(root_resolved, raw_str)
+        for raw_str in raw_dirty_or_staged
+        if not _is_template_backup_rel_path(raw_str)
     }
     changed_set: set[PurePosixPath] = set(dirty_or_staged_set)
 
@@ -2653,7 +2848,11 @@ def validate_owned_paths_diff(
             f"commit diff {effective_base}...HEAD",
             f"git diff {effective_base}...HEAD failed (shallow clone or missing merge-base; pass --base <rev>)",
         )
-        changed_set.update(_validate_changed_rel_path(root_resolved, raw_str) for raw_str in committed_raw)
+        changed_set.update(
+            _validate_changed_rel_path(root_resolved, raw_str)
+            for raw_str in committed_raw
+            if not _is_template_backup_rel_path(raw_str)
+        )
 
     changed_paths = sorted(changed_set, key=lambda p: p.as_posix())
 
@@ -2674,46 +2873,49 @@ def validate_owned_paths_diff(
         else set()
     )
 
-    pr_spec_exempt_ready = False
-    approval_commit: str | None = None
-    if exempt_enabled and any(p in pr_spec_candidates and p not in dirty_or_staged_set for p in changed_paths):
-        tasks_rel_posix = tasks_file.relative_to(root_resolved).as_posix()
-        approval_commit = _find_earliest_approved_commit_sha(root_resolved, tasks_rel_posix)
-        if approval_commit is None:
-            cand_src_rev = fms[tasks_file].get("source_revision", "").strip().lower()
-            if HEX40_RE.fullmatch(cand_src_rev) and not re.fullmatch(r"0+", cand_src_rev):
-                approval_commit = cand_src_rev
-        if approval_commit is not None and HEX40_RE.fullmatch(approval_commit):
-            anc_proc = subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(root_resolved),
-                    "merge-base",
-                    "--is-ancestor",
-                    approval_commit,
-                    "HEAD",
-                ],
-                capture_output=True,
-                text=True,
-            )
-            pr_spec_exempt_ready = anc_proc.returncode == 0
-
     def _is_unchanged_since_approval(spec_rel: PurePosixPath) -> bool:
-        if not pr_spec_exempt_ready or approval_commit is None:
+        spec_abs = root_resolved / spec_rel.as_posix()
+        spec_fm = fms.get(spec_abs, {})
+        spec_src_rev = spec_fm.get("source_revision", "").strip().lower()
+        spec_approval_commit = _find_matching_approved_commit_sha(
+            root_resolved, spec_rel.as_posix(), spec_src_rev
+        )
+        if spec_approval_commit is None:
+            if HEX40_RE.fullmatch(spec_src_rev) and not re.fullmatch(r"0+", spec_src_rev):
+                spec_approval_commit = spec_src_rev
+        if spec_approval_commit is None or not HEX40_RE.fullmatch(spec_approval_commit):
+            return False
+        git_spec = _resolve_git_spec_path(root_resolved, spec_rel.as_posix())
+        if git_spec is None:
+            return False
+        spec_git_top, spec_git_rel = git_spec
+        anc_proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(spec_git_top),
+                "merge-base",
+                "--is-ancestor",
+                spec_approval_commit,
+                "HEAD",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if anc_proc.returncode != 0:
             return False
         diff_proc = subprocess.run(
             [
                 "git",
                 "--literal-pathspecs",
                 "-C",
-                str(root_resolved),
+                str(spec_git_top),
                 "diff",
                 "--quiet",
-                approval_commit,
+                spec_approval_commit,
                 "HEAD",
                 "--",
-                spec_rel.as_posix(),
+                spec_git_rel,
             ],
             capture_output=True,
         )
@@ -2736,8 +2938,14 @@ def validate_owned_paths_diff(
 
     if violations:
         scope_label = f"{rel_feature} task {task_id.strip()}" if task_id else rel_feature
+        hint = ""
+        if exempt_enabled and any(PurePosixPath(v) in pr_spec_candidates for v in violations):
+            hint = (
+                " (if you just ran stamp-spec.py --amend, commit the approved spec pack "
+                "before running --check-owned-paths)"
+            )
         raise ValueError(
-            f"owned-paths violation for {scope_label}: out-of-scope file(s): {', '.join(violations)}"
+            f"owned-paths violation for {scope_label}: out-of-scope file(s): {', '.join(violations)}{hint}"
         )
 
     return warnings

@@ -269,16 +269,22 @@ def _verify_tree_no_symlinks(tree_root: Path, repo_root: Path) -> None:
             )
 
 
-def _run_strict_docs_validation(root: Path) -> list[str]:
+def _run_strict_docs_validation(
+    root: Path,
+    *,
+    external_root: Path | None = None,
+    git_root: Path | None = None,
+) -> list[str]:
     docs, current, files = _scan_docs_current_no_symlinks(root)
-    validate_links(root, docs, files)
+    validate_links(root, docs, files, external_root=external_root)
     validate_mermaid(root, files)
-    clarify_warnings = validate_clarify_gate(root, files, strict=True)
+    clarify_warnings = validate_clarify_gate(root, files, strict=True, git_root=git_root)
     spec_warnings = validate_feature_specs(
         root,
         current / "05 - Product Features",
         require_tasks=True,
         strict=True,
+        git_root=git_root,
     )
     return list(dict.fromkeys(clarify_warnings + spec_warnings))
 
@@ -509,49 +515,20 @@ def _run_dry_run(
 ) -> int:
     docs_src = root / "docs"
     _verify_tree_no_symlinks(docs_src, root)
-    git_top = resolve_git_toplevel(root)
-    real_git_dir = ""
-    if git_top is not None:
-        gd_proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--absolute-git-dir"],
-            capture_output=True,
-            text=True,
-        )
-        if gd_proc.returncode == 0:
-            real_git_dir = gd_proc.stdout.strip()
 
     with tempfile.TemporaryDirectory() as td:
         tmp_root = Path(td).resolve()
         shutil.copytree(docs_src, tmp_root / "docs", symlinks=True)
-        if git_top == root and real_git_dir:
-            (tmp_root / ".git").write_text(f"gitdir: {real_git_dir}\n", encoding="utf-8")
-
-        skip_names = {".git", "plans", "node_modules", ".venv", "__pycache__"}
-        for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
-            dp = Path(dirpath)
-            dirnames[:] = [
-                d
-                for d in dirnames
-                if d not in skip_names
-                and not d.startswith(".ai-template-backup.")
-                and not (dp == root and d == "docs")
-                and not (dp / d).is_symlink()
-            ]
-            for fname in filenames:
-                if fname == ".git":
-                    continue
-                src_file = dp / fname
-                if src_file.is_symlink() or not src_file.is_file():
-                    continue
-                dst_file = tmp_root / src_file.relative_to(root)
-                dst_file.parent.mkdir(parents=True, exist_ok=True)
-                dst_file.write_bytes(b"")
 
         for orig_path, new_text, _orig_b, mode in planned_writes:
             staged_path = tmp_root / orig_path.relative_to(root)
             _atomic_write_bytes(staged_path, new_text.encode("utf-8"), mode)
 
-        warnings = _run_strict_docs_validation(tmp_root)
+        warnings = _run_strict_docs_validation(
+            tmp_root,
+            external_root=root,
+            git_root=root,
+        )
 
     _emit_warnings(warnings)
     action = "amend" if amend else "approve"
@@ -595,6 +572,10 @@ def _apply_and_validate_writes(
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     require(not args.root.is_symlink(), f"project root cannot be a symlink: {args.root}")
+    probe_git_top = resolve_git_toplevel(args.root)
+    if probe_git_top is not None and hasattr(_dv, "_verify_git_root_no_symlink"):
+        if args.root.resolve().is_relative_to(probe_git_top):
+            _dv._verify_git_root_no_symlink(args.root, probe_git_top, err_prefix="stamp-spec")
     root = args.root.resolve()
 
     if not args.dry_run and is_source_template_repository(root):

@@ -142,14 +142,27 @@ SOURCE_OVERRIDES: dict[str, str] = {
 
 PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
     "AGENTS.md": {
+        "582c8999838a6107865b804577afec49e09833b2db3c4bdc27607d1926b94375",
+        "bf5f98db553a2ae71bb0750156db6582e6a1fa7dd113880f8752c7c10cac2e2e",
+        "76500176c563fe98d9185cf50177b675d4b573f30e4af68f7e0894d01e4ab031",
+        "ffdd658cd07fab3f0771dfb97eca49bad6dfc8ddebda1c414332cd7684736884",
+        "c579e8f154edc8ab425823d2d8603963c519301fed2bf6be2e0228cf997b9035",
+        "02fbc7ac0835fe93df24dd619c0c921ecfd85baeb641014a6fbf39f6d72cbcd6",
+        "f5a4b5dbcab9c5cb1b8871216c9e927c450d4cb6cb707dfae25968d59acee30a",
+        "6b1394820aa7496ab77d76782aca7364ca2c90aca3894c38d36a803f0c484be3",
         "b318c52d980c3d5e0522fe4f0190226374175dcfdcb0c4a3017c358de379053a",
+        "ee5da7fc487cb3930828775505c0f865d9a69493298f3f693bdd6e99c9c3063c",
         "6fa367b68a771f691cb6f0419551a11ac6dd2d683f797662f9122615abbe9c24",
+        "81701c543d1971dda434cf7cc3daca4e664b6f782c7bc9d1ef94aa57c29107a2",
     },
     "CLAUDE.md": {
         "dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a",
         "9d1e8b139b166a9fca8c9cfd1898caeee685872ea0eb80439a565035c11d0300",
     },
-    "GEMINI.md": {"7277122704187512c0cec801eeb99c4f92668a04e63a36c77fd680d5f0acb45b"},
+    "GEMINI.md": {
+        "0d47f7924259b6da5cdcadddd147012f994b3b26699abae621fff3433757c309",
+        "7277122704187512c0cec801eeb99c4f92668a04e63a36c77fd680d5f0acb45b",
+    },
     "QWEN.md": {"b799d01b4909119a3da308a805cb158a05aee07fa61d3d0a1a35940e50683d51"},
     "adapters/copilot-instructions.md": {
         "ad6c1ef0d66f938bcfa4907223d4836528576106d342352ea983761e528ce68c",
@@ -187,21 +200,28 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "39cf981dc3547d01c2c4ced0c0c7fce839369a7b932c57fc92df41a586676306",
         "d7bd2635aca5ab6717467dd87699cf83567c59d37fb17c17c27bf066bb6b02a6",
         "bf78f15fb72948cfbb822531cb10f6b63030c96693abc05530d26d46e6a11c34",
+        "0a57a87738adff8e338ca7e73cb1db2cb41337404e1aa14d590880fd3ae0e979",
     },
     "skills/sdd-implement/SKILL.md": {
         "9d8b5b678fb4e55e1c5f2062080dbe2b21e47e54992c07d97d3b7a84ad14a2ac",
         "c093e6656692fa32ad8f9bfabef0e172cde369e3aa4f81beb204effa873f16cb",
         "2570a6427a90276f87b90abfeeab774563ae731e29721c38934bedd466c405c0",
         "c3238c1e517889d5855eaa94e4ac8adf5556ca565c23b1430d8552f5394656e1",
+        "9f6ea24560bf83ad97fda11fe1cdf87c17da43da82bd4f0d37db55a322597ffd",
     },
     "skills/sdd-fix/SKILL.md": {
         "ab237567af83c3ab2783921561928614605a9618a8111714a2ce1861ecdb4535",
         "5e323c915df62cab8c67b2b56a13bef25742ec9720cc614fca93fe5b3d076c45",
         "c123999194e7311997f7cb5e09347ffde7241db2d3439e4ac997afe7bfe37c5a",
+        "cef0b3dc107863f7bdc154a8441a3fa3ef31491cfae08551524b8d0000005c90",
+    },
+    "skills/sdd-review/SKILL.md": {
+        "be3ef606cf3f6643265ee43755353e4189b1547b217a387e58e6ef4572d10b2c",
     },
     "tools/docs_validation.py": {
         "077f28407a8f575723542d4f14ced73b056276a431ab49fe740c394699905748",
         "90895ef9fdb6d99c461d86355b71edcce9ea96fb4c33594816a552c3833f1dc2",
+        "3db0906005a9b5ee713d95bc6efea03e791d4654f611f53ff084426db0e91882",
     },
     "tools/export-tasks.py": {
         "0069b1fef04370ef024ff23dc77cb2a9641714ab414590499c92ced58c54cce3",
@@ -211,13 +231,25 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "89fa04fe970cf7772e3579697c7b3c9ebd8894ddd784a4bbdcdff25610569a08",
         "0b1a7df1fbbc4ddc507cc0ec58c89c976b40549afa4667722c523cee32cfa892",
     },
+    "tools/stamp-spec.py": {
+        "32edf40da493920f83980f6697683865d6fa375019c7eab7614165fc1e7d7129",
+    },
+    "tools/record-evidence.py": {
+        "4ead42041b83c4f5e9f4906c2ae86d00e27b8403b8e9e9dada668f592ce2ebb8",
+    },
     "tools/validate-docs.py": {
         "10ea7b992909e46d4d7b458abfb618fc3a0ff5f1b921c7ada28264b61bbee011",
+        "1fd565c92b667332479bf10a1d5cdfb566da9bff7a533bdf16da665c47d7f406",
     },
     "tools/validate-task-evidence.py": {
         "8a66450bdf47a5ead4c97a77e7ce6752309a32ef134cbc1c12e58f7bbe366634",
+        "81d9407336fd7a3c68fa07d960434d7d7aa21333d8b558902e96942ba08cd9bb",
     },
 }
+
+FORBIDDEN_URI_SCHEMES = ("file:", "javascript:", "data:", "vbscript:", "obsidian:")
+ALLOWED_EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
+SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 DOCTOR_LINK_SKIP_DIRS = {
     ".git",
@@ -563,10 +595,18 @@ def cmd_doctor_source(args: list[str]) -> int:
     tools_ok = True
     for rel in source_tools:
         try:
-            read_regular_bytes_nofollow(src_dir, rel)
+            raw_tool = read_regular_bytes_nofollow(src_dir, rel)
         except ValueError:
             print(
                 f"FAIL tools: missing or symlinked source tool {rel}. Remediation: restore {rel} from Git.",
+                file=sys.stderr,
+            )
+            status = 1
+            tools_ok = False
+            continue
+        if len(raw_tool) == 0:
+            print(
+                f"FAIL tools: empty source tool {rel} (0 bytes). Remediation: restore {rel} from Git.",
                 file=sys.stderr,
             )
             status = 1
@@ -658,7 +698,6 @@ def _check_backup_dirs_gitignored(dest_dir: Path) -> None:
         return
     if not backups:
         return
-    git_dir = dest_dir / ".git"
     gitignore_covers = False
     try:
         gi_text = read_regular_text_nofollow(dest_dir, ".gitignore", errors="replace")
@@ -666,9 +705,21 @@ def _check_backup_dirs_gitignored(dest_dir: Path) -> None:
     except ValueError:
         pass
 
+    in_git_worktree = False
+    if not gitignore_covers:
+        try:
+            top_res = subprocess.run(
+                ["git", "-C", str(dest_dir), "rev-parse", "--show-toplevel"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            in_git_worktree = top_res.returncode == 0
+        except OSError:
+            in_git_worktree = False
+
     for bname in backups:
         ignored = gitignore_covers
-        if not ignored and git_dir.exists():
+        if not ignored and in_git_worktree:
             try:
                 res = subprocess.run(
                     ["git", "-C", str(dest_dir), "check-ignore", "-q", bname],
@@ -686,7 +737,8 @@ def _check_backup_dirs_gitignored(dest_dir: Path) -> None:
 
 def cmd_doctor_manifest(args: list[str]) -> int:
     dest_dir = Path(args[0]).resolve()
-    strict = "--strict" in args[1:]
+    src_dir = Path(args[1]).resolve()
+    strict = "--strict" in args[2:]
     try:
         manifest = load_validated_downstream_manifest(dest_dir)
     except Exception:
@@ -833,6 +885,7 @@ def cmd_doctor_manifest(args: list[str]) -> int:
 
     managed_set = set(str(p) for p in manifest["managed_paths"])  # type: ignore[union-attr]
     tools_ok = True
+    tools_verified = True
     for tool_rel in (
         "tools/docs_validation.py",
         "tools/validate-docs.py",
@@ -840,17 +893,41 @@ def cmd_doctor_manifest(args: list[str]) -> int:
     ):
         if tool_rel in managed_set:
             try:
-                read_regular_bytes_nofollow(dest_dir, tool_rel)
+                raw_bytes = read_regular_bytes_nofollow(dest_dir, tool_rel)
             except ValueError:
                 print(
-                    f"FAIL tools: missing or symlinked managed tool {tool_rel}. Remediation: restore managed tools with setup.sh --update.",
+                    f"FAIL tools: missing or symlinked managed tool {tool_rel} — run setup.sh --update to restore it.",
                     file=sys.stderr,
                 )
                 status = 1
                 tools_ok = False
+                continue
+            if len(raw_bytes) == 0:
+                print(
+                    f"FAIL tools: empty managed tool {tool_rel} (0 bytes) — run setup.sh --update to restore it.",
+                    file=sys.stderr,
+                )
+                status = 1
+                tools_ok = False
+                continue
+            dest_sha = hashlib.sha256(raw_bytes).hexdigest()
+            src_sha = sha256_nofollow(src_dir, tool_rel)
+            if src_sha is None or dest_sha != src_sha:
+                if strict:
+                    print(
+                        f"FAIL tools: managed tool {tool_rel} differs from canonical template SHA-256 — run setup.sh --update to sync.",
+                        file=sys.stderr,
+                    )
+                    status = 1
+                    tools_ok = False
+                else:
+                    print(
+                        f"WARN tools: managed tool {tool_rel} differs from canonical template SHA-256; run setup.sh --update to sync."
+                    )
+                    tools_verified = False
         else:
             print(f"WARN tools: {tool_rel} is user-owned or unmanaged; preserving without managed integrity check.")
-    if tools_ok:
+    if tools_ok and tools_verified:
         print("PASS tools: managed downstream tools verified")
 
     skills_enabled = bool(manifest.get("skills_enabled", True))
@@ -891,6 +968,28 @@ def cmd_doctor_manifest(args: list[str]) -> int:
                     "WARN skills: no managed SDD skills recorded in manifest; run setup.sh --update to install /sdd-* skills or --without-skills to opt out."
                 )
 
+    if skills_enabled:
+        for tree in active_trees:
+            if any(sp.startswith(f"{tree}/skills/") for sp in skill_paths):
+                continue
+            skills_root = dest_dir / tree / "skills"
+            has_disk_skill = False
+            if (
+                not has_symlink_component(dest_dir, f"{tree}/skills")
+                and skills_root.is_dir()
+                and not skills_root.is_symlink()
+            ):
+                for child in sorted(skills_root.iterdir()):
+                    if not child.is_symlink() and child.is_dir():
+                        cand = child / "SKILL.md"
+                        if cand.is_file() and not cand.is_symlink():
+                            has_disk_skill = True
+                            break
+            if not has_disk_skill:
+                print(
+                    f"WARN skills: skill tree '{tree}/skills' has no installed SDD skills for selected runtime(s); run setup.sh --update to install."
+                )
+
     for tree in active_trees:
         skills_root = dest_dir / tree / "skills"
         if skills_root.is_symlink() or not skills_root.is_dir():
@@ -902,11 +1001,6 @@ def cmd_doctor_manifest(args: list[str]) -> int:
                 print(f"WARN skills: unmanaged skill {rel_cand} preserved alongside template skills.")
 
     _check_backup_dirs_gitignored(dest_dir)
-
-    helper_rel = "tools/docs_validation.py"
-    if helper_rel not in managed_set and (dest_dir / helper_rel).exists() and not (dest_dir / helper_rel).is_symlink():
-        print("WARN spec readiness: tools/docs_validation.py is user-owned; skipping managed semantic spec checks.")
-
     return status
 
 
@@ -944,10 +1038,81 @@ def _should_skip_doctor_link_part(part: str) -> bool:
     return part in DOCTOR_LINK_SKIP_DIRS or part.startswith(".ai-template-backup.")
 
 
-def cmd_doctor_links(args: list[str]) -> int:
-    root = Path(args[0]).resolve()
-    missing: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+def _iter_markdown_link_targets(cleaned: str) -> list[str]:
+    targets: list[str] = []
+    idx = 0
+    n = len(cleaned)
+    while idx < n:
+        lb = cleaned.find("[", idx)
+        if lb == -1:
+            break
+        bs = 0
+        k = lb - 1
+        while k >= 0 and cleaned[k] == "\\":
+            bs += 1
+            k -= 1
+        if bs % 2 == 1:
+            idx = lb + 1
+            continue
+        rb = lb + 1
+        while rb < n and cleaned[rb] not in "\r\n":
+            if cleaned[rb] == "\\" and rb + 1 < n and cleaned[rb + 1] not in "\r\n":
+                rb += 2
+                continue
+            if cleaned[rb] in "[]":
+                break
+            rb += 1
+        if rb >= n or cleaned[rb] != "]" or rb + 1 >= n or cleaned[rb + 1] != "(":
+            idx = lb + 1
+            continue
+        p = rb + 2
+        while p < n and cleaned[p] in " \t":
+            p += 1
+        if p < n and cleaned[p] == "<":
+            gt = p + 1
+            while gt < n and cleaned[gt] not in ">\r\n":
+                if cleaned[gt] == "\\" and gt + 1 < n and cleaned[gt + 1] not in "\r\n":
+                    gt += 2
+                    continue
+                gt += 1
+            if gt < n and cleaned[gt] == ">":
+                tail_m = re.match(r"""^[ \t]*(?:(?:"[^"\r\n]*"|'[^'\r\n]*')[ \t]*)?\)""", cleaned[gt + 1 :])
+                if tail_m is not None:
+                    targets.append(cleaned[p + 1 : gt].strip())
+                    idx = gt + 1 + tail_m.end()
+                    continue
+        else:
+            depth = 1
+            q = p
+            while q < n and depth > 0 and cleaned[q] not in "\r\n":
+                if cleaned[q] == "\\" and q + 1 < n and cleaned[q + 1] not in "\r\n":
+                    q += 2
+                    continue
+                if cleaned[q] == "(":
+                    depth += 1
+                elif cleaned[q] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                q += 1
+            if depth == 0:
+                inside = cleaned[p:q].strip()
+                no_title = re.sub(r"""[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*')$""", "", inside).strip()
+                targets.append(no_title)
+                idx = q + 1
+                continue
+        idx = rb + 1
+    return targets
+
+
+def _walk_md_under(base_root: Path, sub_rel: str) -> list[str]:
+    if has_symlink_component(base_root, sub_rel):
+        return []
+    sub_dir = base_root / sub_rel
+    if sub_dir.is_symlink() or not sub_dir.is_dir():
+        return []
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(sub_dir, followlinks=False):
         dirnames[:] = [
             d
             for d in sorted(dirnames)
@@ -959,35 +1124,124 @@ def cmd_doctor_links(args: list[str]) -> int:
             note = Path(dirpath) / fname
             if note.is_symlink():
                 continue
-            rel_note = note.relative_to(root).as_posix()
-            try:
-                raw_text = read_regular_text_nofollow(root, rel_note, errors="replace")
-            except ValueError:
+            rel_note = note.relative_to(base_root).as_posix()
+            if not has_symlink_component(base_root, rel_note):
+                found.append(rel_note)
+    return found
+
+
+def _collect_doctor_link_files(dest_dir: Path, src_dir: Path) -> list[str]:
+    candidates: set[str] = set()
+    if dest_dir == src_dir:
+        for rel in ("README.md", "CHANGELOG.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "QWEN.md"):
+            if not has_symlink_component(dest_dir, rel) and (dest_dir / rel).is_file():
+                candidates.add(rel)
+        adapters_dir = dest_dir / "adapters"
+        if not has_symlink_component(dest_dir, "adapters") and adapters_dir.is_dir() and not adapters_dir.is_symlink():
+            for child in sorted(adapters_dir.iterdir()):
+                if child.suffix == ".md" and child.is_file() and not child.is_symlink():
+                    candidates.add(child.relative_to(dest_dir).as_posix())
+        skills_dir = dest_dir / "skills"
+        if not has_symlink_component(dest_dir, "skills") and skills_dir.is_dir() and not skills_dir.is_symlink():
+            for child in sorted(skills_dir.iterdir()):
+                if child.name.startswith("sdd-") and child.is_dir() and not child.is_symlink():
+                    skill_md = child / "SKILL.md"
+                    if skill_md.is_file() and not skill_md.is_symlink():
+                        candidates.add(skill_md.relative_to(dest_dir).as_posix())
+        candidates.update(_walk_md_under(dest_dir, "docs/current"))
+        candidates.update(_walk_md_under(dest_dir, "docs/templates"))
+    else:
+        candidates.update(_walk_md_under(dest_dir, "docs"))
+        if not has_symlink_component(dest_dir, "AGENTS.md") and (dest_dir / "AGENTS.md").is_file():
+            candidates.add("AGENTS.md")
+        managed_md: list[str]
+        try:
+            manifest = load_validated_downstream_manifest(dest_dir)
+            managed_md = [
+                str(p)
+                for p in manifest["managed_paths"]  # type: ignore[union-attr]
+                if isinstance(p, str) and p.endswith(".md")
+            ]
+        except Exception:
+            managed_md = [
+                "CLAUDE.md",
+                "GEMINI.md",
+                "QWEN.md",
+                ".github/copilot-instructions.md",
+                ".agents/AGENTS.md",
+                *sorted(ALL_SKILL_PATHS),
+            ]
+        for rel in managed_md:
+            if is_safe_rel_path(rel) and not has_symlink_component(dest_dir, rel) and (dest_dir / rel).is_file():
+                candidates.add(rel)
+    return sorted(candidates)
+
+
+def _resolve_doctor_link_target(root_resolved: Path, start_dir: Path, rel_target: str) -> Path | None:
+    if root_resolved.is_symlink() or not start_dir.is_relative_to(root_resolved):
+        return None
+    if "\\" in rel_target or rel_target.startswith("/"):
+        return None
+    cur = root_resolved
+    for part in start_dir.relative_to(root_resolved).parts:
+        cur = cur / part
+        if cur.is_symlink():
+            return None
+    for part in rel_target.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if cur == root_resolved:
+                return None
+            cur = cur.parent
+            continue
+        cur = cur / part
+        if cur.is_symlink():
+            return None
+    try:
+        resolved = cur.resolve()
+    except OSError:
+        return None
+    if not resolved.is_relative_to(root_resolved) or cur.is_symlink() or not resolved.is_file():
+        return None
+    return resolved
+
+
+def cmd_doctor_links(args: list[str]) -> int:
+    dest_dir = Path(args[0]).resolve()
+    src_dir = Path(args[1]).resolve() if len(args) > 1 else dest_dir
+    missing: list[str] = []
+    for rel_note in _collect_doctor_link_files(dest_dir, src_dir):
+        note = dest_dir / rel_note
+        try:
+            raw_text = read_regular_text_nofollow(dest_dir, rel_note, errors="replace")
+        except ValueError:
+            continue
+        cleaned = _strip_markdown_code(raw_text)
+        for target in _iter_markdown_link_targets(cleaned):
+            if not target or target.startswith("#"):
                 continue
-            cleaned = _strip_markdown_code(raw_text)
-            for target in re.findall(r"(?<!!)(?:!?)\[[^]]*\]\(([^)]+)\)", cleaned):
-                stripped_target = target.strip()
-                if stripped_target.startswith("<") and ">" in stripped_target:
-                    raw_target = stripped_target[1 : stripped_target.index(">")].split("#", 1)[0].strip()
-                else:
-                    no_title = re.sub(r"""[ \t]+(?:"[^"]*"|'[^']*')$""", "", stripped_target)
-                    raw_target = no_title.split("#", 1)[0].strip().strip("<>")
-                if not raw_target:
-                    continue
-                unquoted_once = unquote(raw_target).strip()
-                unquoted_twice = unquote(unquoted_once).strip()
-                forbidden_schemes = ("file:", "javascript:", "data:", "vbscript:", "obsidian:")
-                if any(
-                    cand.lower().startswith(forbidden_schemes)
-                    for cand in (raw_target, unquoted_once, unquoted_twice)
-                ):
-                    missing.append(f"{rel_note} -> {raw_target}")
-                    continue
-                if unquoted_once.lower().startswith(("http://", "https://", "mailto:", "tel:")):
-                    continue
-                candidate = (note.parent / unquoted_once).resolve()
-                if not candidate.is_relative_to(root) or not candidate.exists():
-                    missing.append(f"{rel_note} -> {raw_target}")
+            raw_target = target.split("#", 1)[0].strip()
+            if not raw_target:
+                continue
+            unquoted_once = unquote(raw_target).strip()
+            unquoted_twice = unquote(unquoted_once).strip()
+            cands = (raw_target, unquoted_once, unquoted_twice)
+            if any(cand.lower().startswith(FORBIDDEN_URI_SCHEMES) for cand in cands):
+                missing.append(f"{rel_note} -> {raw_target}")
+                continue
+            if unquoted_once.lower().startswith(ALLOWED_EXTERNAL_SCHEMES):
+                continue
+            if any(SCHEME_RE.match(cand) for cand in cands):
+                missing.append(f"{rel_note} -> {raw_target}")
+                continue
+            if any("\\" in cand or cand.startswith("/") for cand in cands) or (
+                unquoted_twice != unquoted_once and ".." in unquoted_twice.split("/")
+            ):
+                missing.append(f"{rel_note} -> {raw_target}")
+                continue
+            if _resolve_doctor_link_target(dest_dir, note.parent, unquoted_once) is None:
+                missing.append(f"{rel_note} -> {raw_target}")
     if missing:
         print("FAIL docs links: " + "; ".join(missing[:10]), file=sys.stderr)
         return 1
@@ -1000,27 +1254,20 @@ def cmd_doctor_spec_readiness(args: list[str]) -> int:
     src_dir = Path(args[1]).resolve()
     strict = "--strict" in args[2:]
 
-    validator_dir: Path | None = None
-    if dest_dir == src_dir:
-        try:
-            read_regular_bytes_nofollow(src_dir, "tools/docs_validation.py")
-            validator_dir = src_dir / "tools"
-        except ValueError:
-            return 0
-    else:
-        try:
-            manifest = load_validated_downstream_manifest(dest_dir)
-            managed_set = set(str(p) for p in manifest["managed_paths"])  # type: ignore[union-attr]
-            if "tools/docs_validation.py" in managed_set:
-                read_regular_bytes_nofollow(dest_dir, "tools/docs_validation.py")
-                validator_dir = dest_dir / "tools"
-        except Exception:
-            return 0
+    src_validator_bytes = read_regular_bytes_nofollow(src_dir, "tools/docs_validation.py")
+    if len(src_validator_bytes) == 0:
+        raise ValueError("empty trusted source tools/docs_validation.py")
+
+    if has_symlink_component(dest_dir, "docs/current"):
+        raise ValueError("refusing symlinked docs/current directory")
 
     current_root = dest_dir / "docs/current"
-    if validator_dir is None or current_root.is_symlink() or not current_root.is_dir():
+    if not current_root.exists():
         return 0
+    if not current_root.is_dir():
+        raise ValueError("docs/current is not a directory")
 
+    validator_dir = src_dir / "tools"
     sys.path.insert(0, str(validator_dir))
     from docs_validation import (  # type: ignore[import-not-found]
         validate_clarify_gate,
@@ -1030,7 +1277,11 @@ def cmd_doctor_spec_readiness(args: list[str]) -> int:
     )
 
     docs_root = dest_dir / "docs"
-    files = sorted(p for p in current_root.rglob("*.md") if not p.is_symlink())
+    files = sorted(
+        p
+        for p in current_root.rglob("*.md")
+        if not p.is_symlink() and not has_symlink_component(dest_dir, p.relative_to(dest_dir).as_posix())
+    )
     if files:
         validate_links(dest_dir, docs_root, files)
         validate_mermaid(dest_dir, files)
@@ -1180,6 +1431,11 @@ def cmd_prepare_ownership(args: list[str]) -> int:
     force = args[4] == "true"
     is_update = args[5] == "true"
     set_models_flag = args[6] == "true"
+    requested = (
+        dedup_preserve_order([m for m in args[7].split(",") if m])
+        if len(args) > 7 and args[7]
+        else list(selected)
+    )
 
     template_owned = False
     prior_managed: set[str] = set()
@@ -1257,6 +1513,7 @@ def cmd_prepare_ownership(args: list[str]) -> int:
 
     # 3. Deduplicated SDD skills ownership
     active_trees = active_skill_trees_for_models(selected)
+    requested_trees = active_skill_trees_for_models(requested)
     for prefix in active_trees:
         for slug in SDD_SKILL_SLUGS:
             rel = f"{prefix}/skills/{slug}/SKILL.md"
@@ -1276,6 +1533,15 @@ def cmd_prepare_ownership(args: list[str]) -> int:
                 print(f"SCHEDULE_SKILL|{rel}")
             else:
                 print(f"USER_SKILL|{rel}")
+    if not is_update and with_skills:
+        for prefix in requested_trees:
+            if prefix in active_trees:
+                continue
+            for slug in SDD_SKILL_SLUGS:
+                rel = f"{prefix}/skills/{slug}/SKILL.md"
+                target = dest_dir / rel
+                if not target.exists() and not target.is_symlink():
+                    print(f"SCHEDULE_SKILL|{rel}")
 
     # 4. Orphan pruning when --set-models deselects previously managed adapters or skill trees
     if set_models_flag and template_owned:
@@ -1340,12 +1606,9 @@ def cmd_write_manifest(args: list[str]) -> int:
     for model in requested:
         cfg = RUNTIME_REGISTRY[model]
         adapter = cfg["adapter"]
-        src_adapter = cfg["source_adapter"]
-        if adapter is None or src_adapter is None:
+        if adapter is None:
             continue
-        dest_hash = sha256_nofollow(dest_dir, str(adapter))
-        src_hash = sha256_nofollow(src_dir, str(src_adapter))
-        if dest_hash is not None and src_hash is not None and dest_hash == src_hash:
+        if is_template_unchanged(src_dir, dest_dir, str(adapter)):
             managed_adapters.append(model)
 
     # Determine managed_skill_list across deduplicated active skill trees
@@ -1356,9 +1619,7 @@ def cmd_write_manifest(args: list[str]) -> int:
                 rel = f"{tree}/skills/{slug}/SKILL.md"
                 if rel in skipped_user_skills:
                     continue
-                dest_hash = sha256_nofollow(dest_dir, rel)
-                src_hash = sha256_nofollow(src_dir, f"skills/{slug}/SKILL.md")
-                if dest_hash is not None and src_hash is not None and dest_hash == src_hash:
+                if is_template_unchanged(src_dir, dest_dir, rel):
                     managed_skill_list.append(rel)
     managed_skill_set = set(managed_skill_list)
 

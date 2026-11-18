@@ -111,10 +111,39 @@ def main() -> None:
     )
     require_text(ROOT / "AGENTS.md", "--supersede")
     require_text(ROOT / "AGENTS.md", "superseded_by")
-    require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
+    setup_guide = require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
+    for setup_token in (
+        "9 lệnh tắt Agent Skills",
+        "/sdd-review",
+        "tools/stamp-spec.py",
+        "tools/record-evidence.py",
+        "--check-owned-paths",
+        "source_revision: self",
+    ):
+        require(setup_token in setup_guide, f"00 - Onboarding/1. Setup Guide.md: missing {setup_token!r}")
+    require(
+        "8 lệnh tắt Agent Skills" not in setup_guide,
+        "00 - Onboarding/1. Setup Guide.md: stale '8 lệnh tắt Agent Skills' remains",
+    )
+
+    vault_moc = require_text(CURRENT / "Vault Index MOC.md", "/sdd-review")
+    require("8 giai đoạn" in vault_moc, "Vault Index MOC.md: missing '8 giai đoạn'")
+    require("7 giai đoạn" not in vault_moc, "Vault Index MOC.md: stale '7 giai đoạn' remains")
+
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "/sdd-docs")
 
-    for readme_token in ("/sdd-docs", "/sdd-specify", "/sdd-fix", "--without-skills", "--set-models", "security-hardening"):
+    for readme_token in (
+        "/sdd-docs",
+        "/sdd-specify",
+        "/sdd-fix",
+        "/sdd-review",
+        "--without-skills",
+        "--set-models",
+        "security-hardening",
+        "stamp-spec.py",
+        "record-evidence.py",
+        "--check-owned-paths",
+    ):
         require_text(ROOT / "README.md", readme_token)
 
     sdd_prompts = read(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md")
@@ -126,9 +155,10 @@ def main() -> None:
         "/sdd-analyze",
         "/sdd-implement",
         "/sdd-fix",
+        "/sdd-review",
     ):
         require(slash_cmd in sdd_prompts, f"6. Spec-Driven Feature Prompts.md: missing {slash_cmd} shortcut")
-    for stage in ("Specify", "Clarify", "Plan", "Tasks", "Analyze", "Implement", "Fix"):
+    for stage in ("Specify", "Clarify", "Plan", "Tasks", "Analyze", "Implement", "Fix", "Review"):
         require(
             bool(re.search(rf"^##\s+\d+\.\s+{stage}\b", sdd_prompts, re.M)),
             f"6. Spec-Driven Feature Prompts.md: missing canonical stage heading for {stage}",

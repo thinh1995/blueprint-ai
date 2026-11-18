@@ -31,6 +31,7 @@ EXPECTED_SKILLS = (
     "sdd-analyze",
     "sdd-implement",
     "sdd-fix",
+    "sdd-review",
 )
 EXPECTED_SKILL_SET = frozenset(EXPECTED_SKILLS)
 REQUIRED_FRONTMATTER_KEYS = frozenset({"name", "description", "disable-model-invocation"})
@@ -49,6 +50,7 @@ STAGE_SKILL_REQUIREMENTS: dict[str, tuple[str, str]] = {
     "sdd-analyze": ("## 5. Analyze", "tools/validate-docs.py --require-tasks"),
     "sdd-implement": ("## 6. Implement", "task-evidence"),
     "sdd-fix": ("## 7. Fix", "task-evidence"),
+    "sdd-review": ("## 8. Review", "tools/validate-docs.py"),
 }
 
 FRONTMATTER_RE = re.compile(r"^---[ \t]*\n(.*?)\n---[ \t]*\n(.+)$", re.DOTALL)

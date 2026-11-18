@@ -51,7 +51,7 @@ while IFS= read -r source_file; do
     done
     [ "$is_optional" = true ] || core_doc_count=$((core_doc_count + 1))
 done < <(find "$TEMPLATE_DIR/docs" -path "$TEMPLATE_DIR/docs/internal" -prune -o -type f ! -name '.DS_Store' -print)
-expected_file_count=$((37 + core_doc_count))
+expected_file_count=$((42 + core_doc_count))
 
 (
     cd "$target"
@@ -95,7 +95,7 @@ fi
 [ -f "$target/.cursor/rules/agents.mdc" ] || fail "default install did not copy .cursor/rules/agents.mdc"
 [ -f "$target/.github/copilot-instructions.md" ] || fail "default install did not copy .github/copilot-instructions.md"
 for skill_dir in ".claude/skills" ".agents/skills" ".qwen/skills"; do
-    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement sdd-fix; do
+    for skill_slug in sdd-docs sdd-specify sdd-clarify sdd-plan sdd-tasks sdd-analyze sdd-implement sdd-fix sdd-review; do
         [ -f "$target/$skill_dir/$skill_slug/SKILL.md" ] || fail "default install did not copy $skill_dir/$skill_slug/SKILL.md"
     done
 done
@@ -109,6 +109,8 @@ assert_file_contains "$target/QWEN.md" "AGENTS.md"
 [ -f "$target/tools/validate-docs.py" ] || fail "default install did not copy downstream docs validator"
 [ -f "$target/tools/new-feature.py" ] || fail "default install did not copy feature scaffolder"
 [ -f "$target/tools/export-tasks.py" ] || fail "default install did not copy task exporter"
+[ -f "$target/tools/stamp-spec.py" ] || fail "default install did not copy spec stamper"
+[ -f "$target/tools/record-evidence.py" ] || fail "default install did not copy evidence recorder"
 python3 "$target/tools/validate-docs.py" || fail "downstream docs validator failed after default install"
 python3 "$target/tools/validate-task-evidence.py" || fail "downstream task-evidence validator failed without task records"
 
@@ -464,7 +466,7 @@ assert_file_contains "$TEST_DIR/missing-puppeteer-config-output.txt" "Missing Pu
 [ ! -e "$target/.agents/AGENTS.md" ] || fail "default install copied optional nested AGENTS.md"
 assert_file_matches "$target/template-manifest.json" '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"'
 python3 -m json.tool "$target/template-manifest.json" >/dev/null || fail "installer wrote invalid manifest JSON"
-for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" ".cursor/rules/agents.mdc" ".github/copilot-instructions.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "tools/new-feature.py" "tools/export-tasks.py" "task-evidence" "docs/current" "docs/templates"; do
+for managed_path in "AGENTS.md" "CLAUDE.md" "GEMINI.md" "QWEN.md" ".cursor/rules/agents.mdc" ".github/copilot-instructions.md" "template-manifest.json" "tools/validate-task-evidence.py" "tools/docs_validation.py" "tools/validate-docs.py" "tools/new-feature.py" "tools/export-tasks.py" "tools/stamp-spec.py" "tools/record-evidence.py" "task-evidence" "docs/current" "docs/templates"; do
     assert_file_contains "$target/template-manifest.json" "\"$managed_path\""
 done
 python3 - "$TEMPLATE_DIR" "$target" <<'PY'
@@ -480,7 +482,7 @@ source_overrides = {
     ".github/copilot-instructions.md": "adapters/copilot-instructions.md",
 }
 for prefix in (".claude", ".agents", ".qwen"):
-    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement", "sdd-fix"):
+    for slug in ("sdd-docs", "sdd-specify", "sdd-clarify", "sdd-plan", "sdd-tasks", "sdd-analyze", "sdd-implement", "sdd-fix", "sdd-review"):
         source_overrides[f"{prefix}/skills/{slug}/SKILL.md"] = f"skills/{slug}/SKILL.md"
 expected: set[str] = set()
 for relative in profile:
@@ -1435,7 +1437,7 @@ assert_file_contains "$TEST_DIR/doctor-clarify-fail.txt" "Doctor result: NOT REA
 # --- v0.5.1 SDD Slash Commands & Agent Skills Pack regression tests ---
 
 assert_file_contains "$TEMPLATE_DIR/setup.sh" "--without-skills"
-assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 8 canonical SDD skills verified"
+assert_file_contains "$TEST_DIR/doctor-source-template.txt" "PASS skills: 9 canonical SDD skills verified"
 
 printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/claude"
 printf '#!/bin/bash\nexit 0\n' > "$TEST_DIR/bin/qwen"
@@ -1444,7 +1446,7 @@ chmod +x "$TEST_DIR/bin/claude" "$TEST_DIR/bin/qwen"
 # 1. --without-skills fresh install, opt-out persistence across --update, --doctor INFO, and normal incremental re-enable
 without_skills_target="$TEST_DIR/without-skills-target"
 mkdir -p "$without_skills_target"
-no_skills_expected_count=$((13 + core_doc_count))
+no_skills_expected_count=$((15 + core_doc_count))
 (
     cd "$without_skills_target"
     bash "$TEMPLATE_DIR/setup.sh" --dry-run --without-skills
@@ -1496,7 +1498,7 @@ PY
     cd "$without_skills_target"
     PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
 ) > "$TEST_DIR/doctor-reenabled-skills.txt"
-assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 8 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "PASS skills: 9 managed downstream SDD skill(s) verified"
 assert_file_contains "$TEST_DIR/doctor-reenabled-skills.txt" "Doctor result: READY"
 
 # 2. --update --without-skills preserves existing SKILL.md files on disk (non-destructive) and drops them from managed_paths
@@ -1601,7 +1603,7 @@ fi
     cd "$v050_skill_target"
     PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
 ) > "$TEST_DIR/doctor-v050-skills-ready.txt"
-assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 15 managed downstream SDD skill(s) verified"
+assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "PASS skills: 17 managed downstream SDD skill(s) verified"
 assert_file_contains "$TEST_DIR/doctor-v050-skills-ready.txt" "Doctor result: READY"
 
 mv "$v050_skill_target/.claude/skills/sdd-docs/SKILL.md" "$TEST_DIR/saved-sdd-docs-skill.md"
@@ -1661,9 +1663,9 @@ assert len(mdc_bytes) <= 450, len(mdc_bytes)
 assert m["selected_models"] == ["opencode", "codex", "cursor", "copilot"], m["selected_models"]
 assert m["managed_adapter_models"] == ["cursor", "copilot"], m["managed_adapter_models"]
 agent_skills = [p for p in m["managed_paths"] if p.startswith(".agents/skills/")]
-assert len(agent_skills) == 8 and len(set(agent_skills)) == 8, agent_skills
+assert len(agent_skills) == 9 and len(set(agent_skills)) == 9, agent_skills
 core_skills = [p for p in m["profiles"]["core"] if p.startswith(".agents/skills/")]
-assert len(core_skills) == 8 and len(set(core_skills)) == 8, core_skills
+assert len(core_skills) == 9 and len(set(core_skills)) == 9, core_skills
 PY
 
 (
@@ -2164,7 +2166,203 @@ if grep -Fq "SKIP (user-owned" "$TEST_DIR/v060-to-v061-readd-cursor.txt"; then
     fail "v0.6.0 -> v0.6.1 re-selecting cursor hit unexpected USER_SKILL/USER_ADAPTER lockout"
 fi
 [ -f "$v060_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.6.0 -> v0.6.1 re-selecting cursor did not reinstall .cursor/rules/agents.mdc"
-[ "$(find "$v060_mig_target/.agents/skills" -name 'SKILL.md' | wc -l | tr -d ' ')" -eq 8 ] || fail "expected all 8 v0.6.1 skills in .agents/skills after re-selecting cursor"
+[ "$(find "$v060_mig_target/.agents/skills" -name 'SKILL.md' | wc -l | tr -d ' ')" -eq 9 ] || fail "expected all 9 v0.7.0 skills in .agents/skills after re-selecting cursor"
 assert_file_contains "$v060_mig_target/.agents/skills/sdd-specify/SKILL.md" "security-hardening"
+
+# --- v0.7.0 MANAGED_SDD_TOOLS, v0.6.1 -> v0.7.0 Migration, and Squash-Merge E2E Workflow ---
+
+# 11. v0.6.1 -> v0.7.0 migration via git archive v0.6.1: --update --set-models pruning, MANAGED_SDD_TOOLS preservation, and VALIDATOR_BUNDLE_MANAGED=false remediation
+v061_template_source="$TEST_DIR/v061-template-source"
+v061_mig_target="$TEST_DIR/v061-mig-target"
+v061_tools_target="$TEST_DIR/v061-tools-target"
+v061_bundle_target="$TEST_DIR/v061-bundle-target"
+mkdir -p "$v061_template_source" "$v061_mig_target" "$v061_tools_target" "$v061_bundle_target"
+git -C "$TEMPLATE_DIR" archive v0.6.1 | tar -x -C "$v061_template_source"
+
+(
+    cd "$v061_mig_target"
+    bash "$v061_template_source/setup.sh" </dev/null >/dev/null
+)
+(
+    cd "$v061_mig_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude
+) > "$TEST_DIR/v061-to-v070-setmodels-claude.txt" 2>&1
+if grep -Fq "preserving user-modified deselected file" "$TEST_DIR/v061-to-v070-setmodels-claude.txt"; then
+    fail "v0.6.1 -> v0.7.0 --update --set-models claude falsely treated untouched v0.6.1 files as user-modified"
+fi
+[ ! -e "$v061_mig_target/.agents/skills" ] || fail "v0.6.1 -> v0.7.0 --set-models claude did not prune .agents/skills"
+[ ! -e "$v061_mig_target/.qwen/skills" ] || fail "v0.6.1 -> v0.7.0 --set-models claude did not prune .qwen/skills"
+[ ! -e "$v061_mig_target/GEMINI.md" ] || fail "v0.6.1 -> v0.7.0 --set-models claude did not prune GEMINI.md"
+[ ! -e "$v061_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.6.1 -> v0.7.0 --set-models claude did not prune .cursor/rules/agents.mdc"
+[ ! -e "$v061_mig_target/.github/copilot-instructions.md" ] || fail "v0.6.1 -> v0.7.0 --set-models claude did not prune .github/copilot-instructions.md"
+[ -f "$v061_mig_target/.claude/skills/sdd-review/SKILL.md" ] || fail "v0.6.1 -> v0.7.0 did not install .claude/skills/sdd-review/SKILL.md"
+[ -f "$v061_mig_target/tools/stamp-spec.py" ] || fail "v0.6.1 -> v0.7.0 did not install tools/stamp-spec.py"
+[ -f "$v061_mig_target/tools/record-evidence.py" ] || fail "v0.6.1 -> v0.7.0 did not install tools/record-evidence.py"
+
+(
+    cd "$v061_mig_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update --set-models claude,cursor
+) > "$TEST_DIR/v061-to-v070-readd-cursor.txt" 2>&1
+if grep -Fq "SKIP (user-owned" "$TEST_DIR/v061-to-v070-readd-cursor.txt"; then
+    fail "v0.6.1 -> v0.7.0 re-selecting cursor hit unexpected USER_SKILL/USER_ADAPTER lockout"
+fi
+[ -f "$v061_mig_target/.cursor/rules/agents.mdc" ] || fail "v0.6.1 -> v0.7.0 re-selecting cursor did not reinstall .cursor/rules/agents.mdc"
+[ "$(find "$v061_mig_target/.agents/skills" -name 'SKILL.md' | wc -l | tr -d ' ')" -eq 9 ] || fail "expected all 9 v0.7.0 skills in .agents/skills after re-selecting cursor"
+
+# User-owned tools/stamp-spec.py AND user-owned tools/validate-task-evidence.py preserved via MANAGED_SDD_TOOLS
+(
+    cd "$v061_tools_target"
+    bash "$v061_template_source/setup.sh" --models claude >/dev/null
+)
+printf '# custom validate-task-evidence\n' > "$v061_tools_target/tools/validate-task-evidence.py"
+printf '# custom stamp-spec\n' > "$v061_tools_target/tools/stamp-spec.py"
+python3 -B - "$v061_tools_target/template-manifest.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+m = json.load(open(p))
+m["managed_paths"] = [x for x in m["managed_paths"] if x != "tools/validate-task-evidence.py"]
+m["profiles"]["core"] = [x for x in m["profiles"]["core"] if x != "tools/validate-task-evidence.py"]
+open(p, "w").write(json.dumps(m, indent=2) + "\n")
+PY
+(
+    cd "$v061_tools_target"
+    bash "$TEMPLATE_DIR/setup.sh" --dry-run --update --migration-plan v070-tools-plan.json >/dev/null
+)
+python3 -B - "$v061_tools_target/v070-tools-plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+manual = {item["path"] for item in plan["manual_action"]}
+install = {item["path"] for item in plan["will_install"]}
+assert "tools/validate-task-evidence.py" in manual, manual
+assert "tools/stamp-spec.py" in manual, manual
+assert "tools/record-evidence.py" in install, install
+PY
+(
+    cd "$v061_tools_target"
+    bash "$TEMPLATE_DIR/setup.sh" --update
+) > "$TEST_DIR/v061-tools-update.txt"
+assert_file_contains "$TEST_DIR/v061-tools-update.txt" "SKIP (user-owned tool): tools/validate-task-evidence.py"
+assert_file_contains "$TEST_DIR/v061-tools-update.txt" "SKIP (user-owned tool): tools/stamp-spec.py"
+assert_file_contains "$v061_tools_target/tools/validate-task-evidence.py" "# custom validate-task-evidence"
+assert_file_contains "$v061_tools_target/tools/stamp-spec.py" "# custom stamp-spec"
+[ -f "$v061_tools_target/tools/record-evidence.py" ] || fail "v0.6.1 -> v0.7.0 did not install tools/record-evidence.py alongside user-owned tools"
+python3 -B - "$v061_tools_target/template-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+for ut in ("tools/validate-task-evidence.py", "tools/stamp-spec.py"):
+    assert ut not in m["managed_paths"], ut
+    assert ut not in m["profiles"]["core"], ut
+assert "tools/record-evidence.py" in m["managed_paths"] and "tools/record-evidence.py" in m["profiles"]["core"]
+PY
+(
+    cd "$v061_tools_target"
+    PATH="$TEST_DIR/bin:$PATH" bash "$TEMPLATE_DIR/setup.sh" --doctor
+) > "$TEST_DIR/v061-tools-doctor.txt"
+assert_file_contains "$TEST_DIR/v061-tools-doctor.txt" "WARN tools: tools/validate-task-evidence.py is user-owned"
+assert_file_contains "$TEST_DIR/v061-tools-doctor.txt" "WARN tools: tools/stamp-spec.py is user-owned"
+assert_file_contains "$TEST_DIR/v061-tools-doctor.txt" "Doctor result: READY"
+
+# VALIDATOR_BUNDLE_MANAGED=false remediation check for stamp-spec.py & record-evidence.py
+mkdir -p "$v061_bundle_target/tools"
+printf '# custom outdated v0.6.1 docs_validation\n' > "$v061_bundle_target/tools/docs_validation.py"
+(
+    cd "$v061_bundle_target"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude >/dev/null
+)
+if python3 -B "$v061_bundle_target/tools/stamp-spec.py" 001-x --by a --evidence b --root "$v061_bundle_target" > "$TEST_DIR/v070-bundle-stamp.txt" 2>&1; then
+    fail "stamp-spec.py succeeded with outdated user-owned docs_validation.py"
+fi
+assert_file_contains "$TEST_DIR/v070-bundle-stamp.txt" "setup.sh --update"
+if grep -Fq "Traceback" "$TEST_DIR/v070-bundle-stamp.txt"; then
+    fail "stamp-spec.py emitted raw Traceback instead of remediation message"
+fi
+if python3 -B "$v061_bundle_target/tools/record-evidence.py" --task-id t1 --feature 001-x --root "$v061_bundle_target" > "$TEST_DIR/v070-bundle-rec.txt" 2>&1; then
+    fail "record-evidence.py --feature succeeded with outdated user-owned docs_validation.py"
+fi
+assert_file_contains "$TEST_DIR/v070-bundle-rec.txt" "setup.sh --update"
+if grep -Fq "Traceback" "$TEST_DIR/v070-bundle-rec.txt"; then
+    fail "record-evidence.py emitted raw Traceback instead of remediation message"
+fi
+
+# 12. End-to-end downstream workflow: new-feature -> stamp-spec -> commit -> edit -> --check-owned-paths -> record-evidence --mode self -> single commit -> squash-merge onto main + branch delete + gc -> --amend on main -> fresh git clone passing BOTH validators!
+e2e_work="$TEST_DIR/v070-e2e-work"
+e2e_clone="$TEST_DIR/v070-e2e-clone"
+mkdir -p "$e2e_work"
+git -C "$e2e_work" init -q
+git -C "$e2e_work" symbolic-ref HEAD refs/heads/main
+git -C "$e2e_work" config user.email "e2e@example.invalid"
+git -C "$e2e_work" config user.name "E2E User"
+(
+    cd "$e2e_work"
+    bash "$TEMPLATE_DIR/setup.sh" --models claude >/dev/null
+)
+printf '.ai-template-backup.*/\nplans/\n' > "$e2e_work/.gitignore"
+git -C "$e2e_work" add .
+git -C "$e2e_work" commit -qm "chore: install v0.7.0 template"
+
+git -C "$e2e_work" checkout -qb feat/001-quick-pay
+python3 -B "$e2e_work/tools/new-feature.py" quick-pay --mini >/dev/null
+python3 -B - "$e2e_work/docs/current/05 - Product Features/001-quick-pay/1. Mini Spec.md" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+txt = p.read_text(encoding="utf-8")
+txt = txt.replace("- [ ]", "- [x]")
+txt = txt.replace("`src/example/`", "`src/pay.py, tests/test_pay.py`")
+txt = txt.replace("`pytest tests/test_example.py`", "`python3 -B tests/test_pay.py`")
+p.write_text(txt, encoding="utf-8")
+PY
+git -C "$e2e_work" add .
+git -C "$e2e_work" commit -qm "docs: draft 001-quick-pay"
+
+python3 -B "$e2e_work/tools/stamp-spec.py" 001-quick-pay --by "lead" --evidence "PR-1" --at 2026-11-18 >/dev/null
+git -C "$e2e_work" add .
+git -C "$e2e_work" commit -qm "docs: approve 001-quick-pay"
+
+mkdir -p "$e2e_work/src" "$e2e_work/tests"
+printf 'def charge(cents: int) -> bool:\n    return cents > 0\n' > "$e2e_work/src/pay.py"
+printf 'import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src")); import pay; assert pay.charge(100)\nprint("PAY_TEST_OK")\n' > "$e2e_work/tests/test_pay.py"
+python3 -B - "$e2e_work/docs/current/05 - Product Features/001-quick-pay/1. Mini Spec.md" <<'PY'
+import sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+p.write_text(p.read_text(encoding="utf-8").replace("| T-01 | todo |", "| T-01 | done |"), encoding="utf-8")
+PY
+
+python3 -B "$e2e_work/tools/validate-docs.py" --require-tasks --strict --check-owned-paths --feature 001-quick-pay >/dev/null
+python3 -B "$e2e_work/tools/record-evidence.py" \
+    --task-id T-01 \
+    --feature 001-quick-pay \
+    --task T-01 \
+    --status completed \
+    --mode self \
+    --by "dev" \
+    --reviewer "lead" \
+    --exec python3 -B tests/test_pay.py >/dev/null
+python3 -B "$e2e_work/tools/validate-task-evidence.py" --allow-working-tree >/dev/null
+
+git -C "$e2e_work" add .
+git -C "$e2e_work" commit -qm "feat: implement quick-pay with 1-commit evidence"
+
+git -C "$e2e_work" checkout -q main
+git -C "$e2e_work" merge --squash feat/001-quick-pay >/dev/null
+git -C "$e2e_work" commit -qm "feat: 001-quick-pay (#1)"
+git -C "$e2e_work" branch -D feat/001-quick-pay >/dev/null
+git -C "$e2e_work" reflog expire --expire=now --all
+git -C "$e2e_work" gc --prune=now --quiet
+
+# 1-commit task-evidence already passes post-squash even after branch deletion & gc!
+python3 -B "$e2e_work/tools/validate-task-evidence.py" --require-completed >/dev/null
+
+# Refresh spec source_revision on main via stamp-spec.py --amend (because pre-squash branch commits were pruned)
+python3 -B "$e2e_work/tools/stamp-spec.py" 001-quick-pay --by "lead" --evidence "PR-1 squash" --at 2026-11-18 --amend >/dev/null
+git -C "$e2e_work" add .
+git -C "$e2e_work" commit -qm "docs: amend 001-quick-pay source_revision post-squash"
+
+git clone -q "file://$e2e_work" "$e2e_clone"
+python3 -B "$e2e_clone/tools/validate-task-evidence.py" --require-completed >/dev/null
+python3 -B "$e2e_clone/tools/validate-docs.py" --require-tasks --strict >/dev/null
 
 echo "PASS: setup installer regression tests"

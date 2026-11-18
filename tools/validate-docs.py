@@ -19,6 +19,7 @@ from docs_validation import (  # noqa: E402
     validate_feature_specs,
     validate_links,
     validate_mermaid,
+    validate_owned_paths_diff,
 )
 
 DEFAULT_ROOT = SCRIPT_DIR.parent
@@ -44,11 +45,42 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Enforce strict 40-character lowercase Git SHA source_revision on approved specs.",
     )
+    parser.add_argument(
+        "--check-owned-paths",
+        action="store_true",
+        help="Verify Git changes match declared Owned paths of the active approved feature spec.",
+    )
+    parser.add_argument(
+        "--feature",
+        help="Target active feature folder or slug (requires --check-owned-paths).",
+    )
+    parser.add_argument(
+        "--base",
+        help="Explicit Git base revision for --check-owned-paths range diff (requires --check-owned-paths).",
+    )
+    parser.add_argument(
+        "--task",
+        help="Validate working-tree/staged changes strictly against one T-xx task row with zero exemptions (requires --check-owned-paths).",
+    )
+    parser.add_argument(
+        "--strict-owned-paths",
+        action="store_true",
+        help="Disable all default doc/changelog/evidence exemptions under --check-owned-paths.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if not args.check_owned_paths and (
+        args.feature is not None
+        or args.base is not None
+        or args.task is not None
+        or args.strict_owned_paths
+    ):
+        raise ValueError(
+            "--feature, --base, --task, and --strict-owned-paths require --check-owned-paths"
+        )
     require(not args.root.is_symlink(), f"project root cannot be a symlink: {args.root}")
     root = args.root.resolve()
     docs = root / "docs"
@@ -71,7 +103,16 @@ def main(argv: list[str] | None = None) -> None:
         require_tasks=args.require_tasks,
         strict=strict,
     )
-    for warning in dict.fromkeys(clarify_warnings + spec_warnings):
+    owned_warnings: list[str] = []
+    if args.check_owned_paths:
+        owned_warnings = validate_owned_paths_diff(
+            root,
+            feature_arg=args.feature,
+            base_rev=args.base,
+            task_id=args.task,
+            strict_owned_paths=args.strict_owned_paths,
+        )
+    for warning in dict.fromkeys(clarify_warnings + spec_warnings + owned_warnings):
         print(f"WARN: {warning}", file=sys.stderr)
     print("PASS: downstream documentation links and Mermaid structure")
 

@@ -22,7 +22,7 @@ Chào mừng bạn đến với kho tri thức (**Knowledge Base**) của dự �
   - [3. AI Agent Workflow](./00%20-%20Onboarding/3.%20AI%20Agent%20Workflow.md): quy trình làm việc dựa trên bằng chứng, phân luồng 3 cấp độ SDD (`Tier S / M / L`), sửa đổi/thay thế đặc tả (`Spec Amendment` / `--supersede`) và phân luồng bảo mật brownfield (`SEC-xx`).
   - [4. Whole-Project Documentation Update Prompt](./00%20-%20Onboarding/4.%20Whole-Project%20Documentation%20Update%20Prompt.md): prompt chuẩn khởi tạo hoặc làm mới toàn bộ `docs/current/` (`/sdd-docs`).
   - [5. Model Runtime Instructions](./00%20-%20Onboarding/5.%20Model%20Runtime%20Instructions.md): cấu hình adapter, bộ kỹ năng `.agents/skills/` và kiểm tra sub-agent cho 8 công cụ AI runtime.
-  - [6. Spec-Driven Feature Prompts](./00%20-%20Onboarding/6.%20Spec-Driven%20Feature%20Prompts.md): bộ prompt 7 giai đoạn (`/sdd-specify` .. `/sdd-implement` và `/sdd-fix`).
+  - [6. Spec-Driven Feature Prompts](./00%20-%20Onboarding/6.%20Spec-Driven%20Feature%20Prompts.md): bộ prompt 8 giai đoạn (`/sdd-specify` .. `/sdd-review` và `/sdd-fix`).
 - **[[01 - Overview/Overview|01 - Overview]]** — Tầm nhìn sản phẩm, phạm vi hệ thống và nền tảng phân tích nghiệp vụ tại [[01 - Overview/BA Foundation|BA Foundation]].
 - **[[02 - Architecture/Architecture|02 - Architecture]]** — Ranh giới hệ thống, mô hình dữ liệu, quyết định kiến trúc, sổ đăng ký triage bảo mật/nợ kỹ thuật brownfield (`SEC-xx`) và danh mục tự động tại [[02 - Architecture/Generated Reference Inventory|Generated Reference Inventory]].
 - **[[05 - Product Features/README|05 - Product Features]]** — Thư mục trung tâm chứa đặc tả của từng tính năng thực tế trong dự án:

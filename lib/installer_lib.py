@@ -34,8 +34,16 @@ SDD_SKILL_SLUGS = (
     "sdd-analyze",
     "sdd-implement",
     "sdd-fix",
+    "sdd-review",
 )
 SKILL_TREES = (".claude", ".agents", ".qwen")
+MANAGED_SDD_TOOLS = (
+    "tools/validate-task-evidence.py",
+    "tools/new-feature.py",
+    "tools/export-tasks.py",
+    "tools/stamp-spec.py",
+    "tools/record-evidence.py",
+)
 
 CANONICAL_RUNTIMES = (
     "claude",
@@ -135,6 +143,7 @@ SOURCE_OVERRIDES: dict[str, str] = {
 PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
     "AGENTS.md": {
         "b318c52d980c3d5e0522fe4f0190226374175dcfdcb0c4a3017c358de379053a",
+        "6fa367b68a771f691cb6f0419551a11ac6dd2d683f797662f9122615abbe9c24",
     },
     "CLAUDE.md": {
         "dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a",
@@ -152,44 +161,55 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "4ff7e524649180e017f0069acd525506619310619744f72e3dc92c57dd569afb",
         "c7fcdd2670ea4fde6656fa1e337beeec0311a7bc307ed0e3222ecbdeeb64a7c6",
         "85c3163dd9ea5d4964175f4a8c52a84ce175e6ab70e27d63a3549741bea7b5c7",
+        "705335aad39db6c9c1bf1d6dd215b2a9f8970c2d8563350a855b635c71d6f685",
     },
     "skills/sdd-specify/SKILL.md": {
         "3595f0930d4864be24271edfb0c3a084898726d22d76950751d034940abeb034",
         "f3331df869fb3354607a979b0d71c0fe6982aed41819ebf8d57166f036a52f72",
+        "b3044c66638d098957ff10ae747e8108b292ac8c54762875f4996bc56f3615f7",
     },
     "skills/sdd-clarify/SKILL.md": {
         "e4ac7aa24dbfa92ba40214cac370879aff2f5404784cca71367011110878a2ab",
         "f219433189cd3d8c0b68b8f3479e7fa197d0f8c5fca26ae957ea766d2ce630c9",
+        "1c50fec36e6d8687a823968340a453c80a3e067cfed1b1ad80cbd78c4aebef19",
     },
     "skills/sdd-plan/SKILL.md": {
         "1ac4e8e54d29a9448f23b2892836a7b4a339a865e65e787456b556c60880824a",
         "1080e20105c02ee6bf3d15de2e349d834df1345d72c439c361cb7f3b335cd4fc",
+        "8323e9bc9de5eee26199a1f48873d3394b8378ef14397903d7093edc245b2e1b",
     },
     "skills/sdd-tasks/SKILL.md": {
         "e5a3c2a081f52ab63333fa511de50759bd21968ea841d81963ef162d649da1ef",
         "813880a75adf7bfa1eb6a75377ebf5a22590767b8e9ed41a47a35e9ba3c6b6f6",
+        "dd745289eb9e12acaa7c62598fc9261c69e3ac5137464884329c7e2a80b3a70e",
     },
     "skills/sdd-analyze/SKILL.md": {
         "39cf981dc3547d01c2c4ced0c0c7fce839369a7b932c57fc92df41a586676306",
         "d7bd2635aca5ab6717467dd87699cf83567c59d37fb17c17c27bf066bb6b02a6",
+        "bf78f15fb72948cfbb822531cb10f6b63030c96693abc05530d26d46e6a11c34",
     },
     "skills/sdd-implement/SKILL.md": {
         "9d8b5b678fb4e55e1c5f2062080dbe2b21e47e54992c07d97d3b7a84ad14a2ac",
         "c093e6656692fa32ad8f9bfabef0e172cde369e3aa4f81beb204effa873f16cb",
         "2570a6427a90276f87b90abfeeab774563ae731e29721c38934bedd466c405c0",
+        "c3238c1e517889d5855eaa94e4ac8adf5556ca565c23b1430d8552f5394656e1",
     },
     "skills/sdd-fix/SKILL.md": {
         "ab237567af83c3ab2783921561928614605a9618a8111714a2ce1861ecdb4535",
         "5e323c915df62cab8c67b2b56a13bef25742ec9720cc614fca93fe5b3d076c45",
+        "c123999194e7311997f7cb5e09347ffde7241db2d3439e4ac997afe7bfe37c5a",
     },
     "tools/docs_validation.py": {
         "077f28407a8f575723542d4f14ced73b056276a431ab49fe740c394699905748",
+        "90895ef9fdb6d99c461d86355b71edcce9ea96fb4c33594816a552c3833f1dc2",
     },
     "tools/export-tasks.py": {
         "0069b1fef04370ef024ff23dc77cb2a9641714ab414590499c92ced58c54cce3",
+        "88c6ddd0317c9be6e767f6dd7beec6d672e19962d8a63298c81804eb2949783e",
     },
     "tools/new-feature.py": {
         "89fa04fe970cf7772e3579697c7b3c9ebd8894ddd784a4bbdcdff25610569a08",
+        "0b1a7df1fbbc4ddc507cc0ec58c89c976b40549afa4667722c523cee32cfa892",
     },
     "tools/validate-docs.py": {
         "10ea7b992909e46d4d7b458abfb618fc3a0ff5f1b921c7ada28264b61bbee011",
@@ -536,11 +556,9 @@ def cmd_doctor_source(args: list[str]) -> int:
 
     source_tools = (
         "lib/installer_lib.py",
-        "tools/validate-task-evidence.py",
         "tools/docs_validation.py",
         "tools/validate-docs.py",
-        "tools/new-feature.py",
-        "tools/export-tasks.py",
+        *MANAGED_SDD_TOOLS,
     )
     tools_ok = True
     for rel in source_tools:
@@ -816,11 +834,9 @@ def cmd_doctor_manifest(args: list[str]) -> int:
     managed_set = set(str(p) for p in manifest["managed_paths"])  # type: ignore[union-attr]
     tools_ok = True
     for tool_rel in (
-        "tools/validate-task-evidence.py",
         "tools/docs_validation.py",
         "tools/validate-docs.py",
-        "tools/new-feature.py",
-        "tools/export-tasks.py",
+        *MANAGED_SDD_TOOLS,
     ):
         if tool_rel in managed_set:
             try:
@@ -1223,7 +1239,7 @@ def cmd_prepare_ownership(args: list[str]) -> int:
     print(f"VALIDATOR_BUNDLE|{'true' if vb_managed else 'false'}")
 
     # 2. SDD tools ownership
-    for key_name, rel in (("NEW_FEATURE", "tools/new-feature.py"), ("EXPORT_TASKS", "tools/export-tasks.py")):
+    for rel in MANAGED_SDD_TOOLS:
         target = dest_dir / rel
         exists_or_link = target.exists() or target.is_symlink()
         if force:
@@ -1236,7 +1252,8 @@ def cmd_prepare_ownership(args: list[str]) -> int:
             tool_managed = True
         else:
             tool_managed = False
-        print(f"{key_name}|{'true' if tool_managed else 'false'}")
+        prefix = "SCHEDULE_TOOL" if tool_managed else "USER_TOOL"
+        print(f"{prefix}|{rel}")
 
     # 3. Deduplicated SDD skills ownership
     active_trees = active_skill_trees_for_models(selected)
@@ -1312,12 +1329,11 @@ def cmd_write_manifest(args: list[str]) -> int:
     with_advanced = args[5] == "true"
     with_legacy = args[6] == "true"
     validator_bundle_managed = args[7] == "true"
-    new_feature_managed = args[8] == "true"
-    export_tasks_managed = args[9] == "true"
-    preset_provided = args[10] == "true"
-    preset_name = args[11]
-    with_skills = args[12] == "true"
-    skipped_user_skills = {p for p in args[13].split("|") if p}
+    preset_provided = args[8] == "true"
+    preset_name = args[9]
+    with_skills = args[10] == "true"
+    skipped_user_skills = {p for p in args[11].split("|") if p}
+    skipped_user_tools = {p for p in args[12].split("|") if p} if len(args) > 12 else set()
 
     # Determine managed_adapter_models strictly among requested adapter-backed runtimes
     managed_adapters: list[str] = []
@@ -1417,12 +1433,15 @@ def cmd_write_manifest(args: list[str]) -> int:
     if not validator_bundle_managed:
         data["managed_paths"] = [p for p in data["managed_paths"] if p not in validator_paths]
         data["profiles"]["core"] = [p for p in data["profiles"]["core"] if p not in validator_paths]
-    if not new_feature_managed:
-        data["managed_paths"] = [p for p in data["managed_paths"] if p != "tools/new-feature.py"]
-        data["profiles"]["core"] = [p for p in data["profiles"]["core"] if p != "tools/new-feature.py"]
-    if not export_tasks_managed:
-        data["managed_paths"] = [p for p in data["managed_paths"] if p != "tools/export-tasks.py"]
-        data["profiles"]["core"] = [p for p in data["profiles"]["core"] if p != "tools/export-tasks.py"]
+    if skipped_user_tools:
+        data["managed_paths"] = [p for p in data["managed_paths"] if p not in skipped_user_tools]
+        data["profiles"]["core"] = [p for p in data["profiles"]["core"] if p not in skipped_user_tools]
+    for tool_rel in MANAGED_SDD_TOOLS:
+        if tool_rel not in skipped_user_tools:
+            if tool_rel not in data["managed_paths"]:
+                data["managed_paths"].append(tool_rel)
+            if tool_rel not in data["profiles"]["core"]:
+                data["profiles"]["core"].append(tool_rel)
 
     destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return 0

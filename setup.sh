@@ -6,7 +6,7 @@ FORCE=false; DRY_RUN=false; WITH_ADVANCED_DOCS=false; WITH_LEGACY_AGENTS=false
 UPDATE=false; DOCTOR=false; STRICT_DOCTOR=false; FORCE_INTERACTIVE=false
 MODELS_OPTION_PROVIDED=false; SET_MODELS_PROVIDED=false; PRESET_OPTION_PROVIDED=false
 WITH_SKILLS=true; WITHOUT_SKILLS_PROVIDED=false; MANIFEST_UPDATE_ALLOWED=true
-VALIDATOR_BUNDLE_MANAGED=true; NEW_FEATURE_MANAGED=true; EXPORT_TASKS_MANAGED=true
+VALIDATOR_BUNDLE_MANAGED=true
 MIGRATION_PLAN=""; SELECTED_MODELS=""; MANIFEST_BASE=""; REQUESTED_MODELS=""
 UPDATE_MANAGED_ADAPTER_MODELS=""; PRESET_NAME=""
 GENERATED_MANIFEST=""; BACKUP_DIR=""; PLAN_EVENTS_FILE=""
@@ -21,6 +21,7 @@ ADAPTER_MAPPINGS=(
     "cursor|.cursor/rules/agents.mdc|adapters/cursor-agents.mdc"
     "copilot|.github/copilot-instructions.md|adapters/copilot-instructions.md"
 )
+SCHEDULED_TOOL_PATHS=(); SKIPPED_USER_TOOL_PATHS=()
 SCHEDULED_SKILL_PATHS=(); SKIPPED_USER_SKILL_PATHS=(); PRESERVED_OPTOUT_SKILL_PATHS=()
 PRUNE_FILE_PATHS=(); WARN_MODIFIED_ORPHAN_PATHS=(); ACTIVE_TEMP_FILES=(); BLOCKED_PATHS=()
 
@@ -431,10 +432,11 @@ prune_deselected_files() {
 }
 
 copy_selected_manifest() {
-    local skipped_skills_arg=""
-    if [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ]; then
-        local IFS='|'; skipped_skills_arg="${SKIPPED_USER_SKILL_PATHS[*]}"
-    fi
+    local skipped_skills_arg="" skipped_tools_arg="" saved_ifs="$IFS"
+    IFS='|'
+    [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ] && skipped_skills_arg="${SKIPPED_USER_SKILL_PATHS[*]}"
+    [ "${#SKIPPED_USER_TOOL_PATHS[@]}" -gt 0 ] && skipped_tools_arg="${SKIPPED_USER_TOOL_PATHS[*]}"
+    IFS="$saved_ifs"
     if [ "$MANIFEST_UPDATE_ALLOWED" = false ]; then
         echo "SKIP (unmanaged manifest): template-manifest.json"
         plan_record "manual" "template-manifest.json" "unmanaged manifest must be reviewed manually"
@@ -462,8 +464,8 @@ copy_selected_manifest() {
     python3 -B "$SRC_DIR/lib/installer_lib.py" write-manifest \
         "$SRC_DIR" "$DEST_DIR" "$MANIFEST_BASE" "$GENERATED_MANIFEST" \
         "$REQUESTED_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" \
-        "$VALIDATOR_BUNDLE_MANAGED" "$NEW_FEATURE_MANAGED" "$EXPORT_TASKS_MANAGED" \
-        "$PRESET_OPTION_PROVIDED" "$PRESET_NAME" "$WITH_SKILLS" "$skipped_skills_arg" || return 1
+        "$VALIDATOR_BUNDLE_MANAGED" "$PRESET_OPTION_PROVIDED" "$PRESET_NAME" \
+        "$WITH_SKILLS" "$skipped_skills_arg" "$skipped_tools_arg" || return 1
 
     backup_existing_file "template-manifest.json"
     [ -L "$DEST_DIR/template-manifest.json" ] && { echo "Error: Refusing to overwrite symlink: template-manifest.json" >&2; return 1; }
@@ -577,6 +579,7 @@ check_destination_path() {
 
 prepare_ownership() {
     local ownership_lines line kind val
+    SCHEDULED_TOOL_PATHS=(); SKIPPED_USER_TOOL_PATHS=()
     SCHEDULED_SKILL_PATHS=(); SKIPPED_USER_SKILL_PATHS=(); PRESERVED_OPTOUT_SKILL_PATHS=()
     PRUNE_FILE_PATHS=(); WARN_MODIFIED_ORPHAN_PATHS=()
     ownership_lines="$(python3 -B "$SRC_DIR/lib/installer_lib.py" prepare-ownership \
@@ -586,8 +589,8 @@ prepare_ownership() {
         IFS='|' read -r kind val <<< "$line"
         case "$kind" in
             VALIDATOR_BUNDLE) VALIDATOR_BUNDLE_MANAGED="$val" ;;
-            NEW_FEATURE) NEW_FEATURE_MANAGED="$val" ;;
-            EXPORT_TASKS) EXPORT_TASKS_MANAGED="$val" ;;
+            SCHEDULE_TOOL) SCHEDULED_TOOL_PATHS+=("$val") ;;
+            USER_TOOL) SKIPPED_USER_TOOL_PATHS+=("$val") ;;
             SCHEDULE_SKILL) SCHEDULED_SKILL_PATHS+=("$val") ;;
             USER_SKILL) SKIPPED_USER_SKILL_PATHS+=("$val") ;;
             OPTOUT_SKILL) PRESERVED_OPTOUT_SKILL_PATHS+=("$val") ;;
@@ -601,12 +604,13 @@ preflight_destinations() {
     local source_file relative_path mapping model adapter_dest adapter_src failed=false
     prepare_manifest_models || failed=true
     prepare_ownership
-    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "task-evidence/.gitkeep"; do
+    for relative_path in "AGENTS.md" "template-manifest.json" "task-evidence/.gitkeep"; do
         check_destination_path "$relative_path" || failed=true
     done
     [ "$VALIDATOR_BUNDLE_MANAGED" = true ] && { check_destination_path "tools/docs_validation.py" || failed=true; check_destination_path "tools/validate-docs.py" || failed=true; }
-    [ "$NEW_FEATURE_MANAGED" = true ] && { check_destination_path "tools/new-feature.py" || failed=true; }
-    [ "$EXPORT_TASKS_MANAGED" = true ] && { check_destination_path "tools/export-tasks.py" || failed=true; }
+    for relative_path in ${SCHEDULED_TOOL_PATHS[@]+"${SCHEDULED_TOOL_PATHS[@]}"}; do
+        check_destination_path "$relative_path" || failed=true
+    done
     for mapping in "${ADAPTER_MAPPINGS[@]}"; do
         IFS='|' read -r model adapter_dest adapter_src <<< "$mapping"
         adapter_selected_for_copy "$model" && { check_destination_path "$adapter_dest" || failed=true; }
@@ -655,17 +659,6 @@ for mapping in "${ADAPTER_MAPPINGS[@]}"; do
     fi
 done
 
-copy_managed_sdd_tool() {
-    if [ "$1" = true ]; then
-        copy_file "$SRC_DIR/tools/$2" "tools/$2"
-    else
-        echo "SKIP (user-owned tool): tools/$2"
-        plan_record "manual" "tools/$2" "user-owned SDD tool will be preserved"
-        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-    fi
-}
-
-copy_file "$SRC_DIR/tools/validate-task-evidence.py" "tools/validate-task-evidence.py"
 copy_file "$SRC_DIR/task-evidence/.gitkeep" "task-evidence/.gitkeep"
 if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
     copy_file "$SRC_DIR/tools/docs_validation.py" "tools/docs_validation.py"
@@ -676,8 +669,14 @@ else
     plan_record "manual" "tools/validate-docs.py" "user-owned validator bundle will be preserved"
     SKIPPED_COUNT=$((SKIPPED_COUNT + 2))
 fi
-copy_managed_sdd_tool "$NEW_FEATURE_MANAGED" "new-feature.py"
-copy_managed_sdd_tool "$EXPORT_TASKS_MANAGED" "export-tasks.py"
+for relative_path in ${SCHEDULED_TOOL_PATHS[@]+"${SCHEDULED_TOOL_PATHS[@]}"}; do
+    copy_file "$SRC_DIR/$relative_path" "$relative_path"
+done
+for relative_path in ${SKIPPED_USER_TOOL_PATHS[@]+"${SKIPPED_USER_TOOL_PATHS[@]}"}; do
+    echo "SKIP (user-owned tool): $relative_path"
+    plan_record "manual" "$relative_path" "user-owned SDD tool will be preserved"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+done
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
     for relative_path in ${OPTIONAL_LEGACY_PATHS[@]+"${OPTIONAL_LEGACY_PATHS[@]}"}; do

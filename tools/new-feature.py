@@ -1,24 +1,57 @@
 #!/usr/bin/env python3
 """Scaffold a 4-file feature pack or 1-file Mini-Spec under docs/current/05 - Product Features/."""
 
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
 
 import argparse
 import json
-import os
 import re
 from pathlib import Path
 from typing import NoReturn
 
-ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+REQUIRED_CORE_SYMBOLS = (
+    "SDD_CORE_API_VERSION",
+    "is_source_template_repository",
+    "parse_frontmatter",
+    "read_bytes_nofollow",
+    "read_text_nofollow",
+    "write_new_exclusive",
+)
+
+try:
+    import _sdd_core  # noqa: E402
+except ImportError as exc:
+    print(
+        f"FAIL: new-feature.py requires tools/_sdd_core.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if user-owned): {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+missing_core = [sym for sym in REQUIRED_CORE_SYMBOLS if not hasattr(_sdd_core, sym)]
+if getattr(_sdd_core, "SDD_CORE_API_VERSION", 0) < 1 or missing_core:
+    print(
+        f"FAIL: new-feature.py requires an up-to-date tools/_sdd_core.py (SDD_CORE_API_VERSION >= 1) in {SCRIPT_DIR} "
+        "(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if tools/_sdd_core.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+DEFAULT_ROOT = SCRIPT_DIR.parent
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SEQ_PREFIX_RE = re.compile(r"^(\d{3})-")
 FRONTMATTER_RE = re.compile(r"\A(---\r?\n)(.*?)(\r?\n---(?:\r?\n|\Z))", re.S)
 APPROVAL_FIELD_RE = re.compile(
-    r"^(approved_by|approved_at|approval_evidence|source_revision|superseded_by|supersedes):[ \t]*.*$",
+    r"^(approved_by|approved_at|approval_evidence|source_revision|contract_sha256|superseded_by|supersedes):[ \t]*.*$",
     re.M,
 )
 
@@ -49,10 +82,20 @@ BLAST_ANCHOR_RE = r"^(- Affected modules, routes, jobs, schemas, or integrations
 
 IGNORED_PRESET_ENTRIES = {".DS_Store", ".gitkeep"}
 
+is_source_template_repository = _sdd_core.is_source_template_repository
+
 
 def fail(message: str) -> NoReturn:
     print(f"FAIL: {message}", file=sys.stderr)
     sys.exit(1)
+
+
+def _read_utf8_bom_stripped(path: Path) -> str:
+    try:
+        raw, _mode = _sdd_core.read_bytes_nofollow(path)
+        return raw.decode("utf-8-sig")
+    except (UnicodeDecodeError, ValueError) as exc:
+        fail(str(exc))
 
 
 def ensure_no_symlinks(root: Path, rel_parts: tuple[str, ...], must_exist: bool = True) -> Path:
@@ -72,25 +115,7 @@ def ensure_no_symlinks(root: Path, rel_parts: tuple[str, ...], must_exist: bool 
     return cur
 
 
-def is_source_template_repository(root: Path) -> bool:
-    manifest_path = root / "template-manifest.json"
-    if manifest_path.is_symlink() or not manifest_path.is_file():
-        return False
-    if not (root / "lib" / "installer_lib.py").is_file() or not (root / "docs" / "internal").is_dir():
-        return False
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return (
-        isinstance(manifest, dict)
-        and manifest.get("template") == "ai-agent-obsidian-project-template"
-        and "requested_models" not in manifest
-        and "selected_models" not in manifest
-    )
-
-
-def resolve_preset_name(cli_preset: str | None) -> str:
+def resolve_preset_name(root: Path, cli_preset: str | None) -> str:
     if cli_preset is not None:
         if not SLUG_RE.fullmatch(cli_preset):
             fail(
@@ -99,15 +124,15 @@ def resolve_preset_name(cli_preset: str | None) -> str:
             )
         return cli_preset
 
-    manifest_path = ROOT / "template-manifest.json"
+    manifest_path = root / "template-manifest.json"
     if manifest_path.is_symlink():
         fail("template-manifest.json cannot be a symlink")
     if manifest_path.exists():
         if not manifest_path.is_file():
             fail("template-manifest.json is not a regular file")
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = json.loads(_sdd_core.read_text_nofollow(manifest_path))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             fail(f"unable to parse template-manifest.json: {exc}")
         if not isinstance(manifest, dict):
             fail("template-manifest.json root must be a JSON object")
@@ -123,12 +148,12 @@ def resolve_preset_name(cli_preset: str | None) -> str:
     return "general"
 
 
-def validate_custom_preset_dir(custom_dir: Path, preset_name: str) -> list[Path]:
+def validate_custom_preset_dir(root: Path, custom_dir: Path, preset_name: str) -> list[Path]:
     if custom_dir.is_symlink():
         fail(f"custom preset directory cannot be a symlink: docs/templates/presets/{preset_name}")
     if not custom_dir.is_dir():
         fail(f"custom preset path is not a directory: docs/templates/presets/{preset_name}")
-    if not custom_dir.resolve().is_relative_to(ROOT):
+    if not custom_dir.resolve().is_relative_to(root):
         fail(f"custom preset directory escapes repository root: docs/templates/presets/{preset_name}")
 
     md_files: list[Path] = []
@@ -145,15 +170,15 @@ def validate_custom_preset_dir(custom_dir: Path, preset_name: str) -> list[Path]
                 f"custom preset '{preset_name}' may only contain regular .md files "
                 f"(found '{entry.name}')"
             )
-        if not entry.resolve().is_relative_to(ROOT):
+        if not entry.resolve().is_relative_to(root):
             fail(f"custom preset file escapes repository root: {entry.name}")
         md_files.append(entry)
     return md_files
 
 
-def list_presets() -> int:
-    ensure_no_symlinks(ROOT, ("docs", "templates"), must_exist=True)
-    presets_root = ensure_no_symlinks(ROOT, ("docs", "templates", "presets"), must_exist=False)
+def list_presets(root: Path) -> int:
+    ensure_no_symlinks(root, ("docs", "templates"), must_exist=True)
+    presets_root = ensure_no_symlinks(root, ("docs", "templates", "presets"), must_exist=False)
 
     custom_names: list[str] = []
     if presets_root.exists():
@@ -165,7 +190,7 @@ def list_presets() -> int:
             if entry.is_symlink():
                 fail(f"symlink refused in docs/templates/presets: {entry.name}")
             if entry.is_dir() and SLUG_RE.fullmatch(entry.name):
-                validate_custom_preset_dir(entry, entry.name)
+                validate_custom_preset_dir(root, entry, entry.name)
                 custom_names.append(entry.name)
 
     for name in BUILTIN_PRESETS:
@@ -678,19 +703,7 @@ def hydrate_spec_content(content: str, title: str, supersede_folder: str | None 
 
 
 def _extract_top_level_status(markdown_text: str) -> str:
-    normalized = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
-    match = re.match(r"^---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|$)", normalized, re.S)
-    if not match:
-        return ""
-    for line in (match.group(1) or "").split("\n"):
-        if line.startswith((" ", "\t")):
-            continue
-        stripped = line.strip()
-        if stripped.startswith("status:"):
-            val = line.split(":", 1)[1].strip()
-            val = re.split(r"[ \t]+#", val, maxsplit=1)[0].strip().strip("'\"")
-            return val.lower()
-    return ""
+    return _sdd_core.parse_frontmatter(markdown_text).get("status", "").strip().lower()
 
 
 def _is_inactive_feature_dir(entry: Path) -> bool:
@@ -704,7 +717,7 @@ def _is_inactive_feature_dir(entry: Path) -> bool:
     if not spec_paths:
         return False
     return all(
-        _extract_top_level_status(p.read_text(encoding="utf-8-sig")) in {"superseded", "archived"}
+        _extract_top_level_status(_sdd_core.read_text_nofollow(p)) in {"superseded", "archived"}
         for p in spec_paths
     )
 
@@ -718,17 +731,7 @@ def _print_supersede_reminder(supersede_folder: str | None) -> None:
 
 
 def write_new_file_exclusive(path: Path, content: str) -> None:
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o644)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-    except Exception:
-        try:
-            path.unlink()
-        except OSError:
-            pass
-        raise
+    _sdd_core.write_new_exclusive(path, content.encode("utf-8"))
 
 
 def _require_builtin_preset(preset_name: str) -> None:
@@ -747,7 +750,7 @@ def _readme_references_four_file_pack(readme_text: str) -> bool:
     )
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Scaffold a 4-file Spec-Driven Development pack or a 1-file Mini-Spec (--mini)."
     )
@@ -789,14 +792,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="List built-in and custom presets and exit.",
     )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=DEFAULT_ROOT,
+        help="Repository root containing docs/current and docs/templates (defaults to parent directory of tools/).",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.root.is_symlink():
+        fail(f"repository root cannot be a symlink: {args.root}")
+    root = args.root.resolve()
 
     if args.list_presets:
-        return list_presets()
+        return list_presets(root)
 
     if not args.slug:
         fail("missing required <slug> argument (or pass --list-presets)")
@@ -825,10 +837,10 @@ def main(argv: list[str] | None = None) -> int:
         clean_for_title = SEQ_PREFIX_RE.sub("", slug) if slug_seq_match else slug
         title = " ".join(part.capitalize() for part in clean_for_title.split("-"))
 
-    preset_name = resolve_preset_name(args.preset)
+    preset_name = resolve_preset_name(root, args.preset)
 
     features_root = ensure_no_symlinks(
-        ROOT, ("docs", "current", "05 - Product Features"), must_exist=True
+        root, ("docs", "current", "05 - Product Features"), must_exist=True
     )
     if not features_root.is_dir():
         fail("docs/current/05 - Product Features is not a directory")
@@ -848,7 +860,7 @@ def main(argv: list[str] | None = None) -> int:
                 "(expected existing folder name inside docs/current/05 - Product Features/)"
             )
         sup_dir = ensure_no_symlinks(
-            ROOT, ("docs", "current", "05 - Product Features", raw_sup), must_exist=True
+            root, ("docs", "current", "05 - Product Features", raw_sup), must_exist=True
         )
         if not sup_dir.is_dir():
             fail(f"--supersede target is not a directory: docs/current/05 - Product Features/{raw_sup}")
@@ -870,7 +882,7 @@ def main(argv: list[str] | None = None) -> int:
             fail(f"--plain cannot reuse exact folder name '{slug}' when superseding '{raw_sup}'")
         supersede_folder = raw_sup
 
-    presets_root = ensure_no_symlinks(ROOT, ("docs", "templates", "presets"), must_exist=False)
+    presets_root = ensure_no_symlinks(root, ("docs", "templates", "presets"), must_exist=False)
     if presets_root.exists() and not presets_root.is_dir():
         fail("docs/templates/presets exists and is not a directory")
     custom_dir = presets_root / preset_name
@@ -879,15 +891,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.mini:
             mini_template_path = ensure_no_symlinks(
-                ROOT, ("docs", "templates", "mini-spec-template", MINI_SPEC_NAME), must_exist=True
+                root, ("docs", "templates", "mini-spec-template", MINI_SPEC_NAME), must_exist=True
             )
             if not mini_template_path.is_file():
-                fail(f"canonical Mini-Spec template is not a regular file: {mini_template_path.relative_to(ROOT)}")
-            base_mini = mini_template_path.read_text(encoding="utf-8-sig")
+                fail(f"canonical Mini-Spec template is not a regular file: {mini_template_path.relative_to(root)}")
+            base_mini = _read_utf8_bom_stripped(mini_template_path)
 
             if custom_dir.exists() or custom_dir.is_symlink():
-                custom_files = validate_custom_preset_dir(custom_dir, preset_name)
-                custom_map = {path.name: path.read_text(encoding="utf-8-sig") for path in custom_files}
+                custom_files = validate_custom_preset_dir(root, custom_dir, preset_name)
+                custom_map = {path.name: _read_utf8_bom_stripped(path) for path in custom_files}
                 if MINI_SPEC_NAME in custom_map:
                     mini_body = custom_map[MINI_SPEC_NAME]
                 elif preset_name in BUILTIN_PRESETS:
@@ -908,7 +920,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             template_dir = ensure_no_symlinks(
-                ROOT, ("docs", "templates", "feature-spec-template"), must_exist=True
+                root, ("docs", "templates", "feature-spec-template"), must_exist=True
             )
             if not template_dir.is_dir():
                 fail("docs/templates/feature-spec-template is not a directory")
@@ -916,15 +928,15 @@ def main(argv: list[str] | None = None) -> int:
             base_docs: dict[str, str] = {}
             for spec_name in CANONICAL_SPECS:
                 spec_path = ensure_no_symlinks(
-                    ROOT, ("docs", "templates", "feature-spec-template", spec_name), must_exist=True
+                    root, ("docs", "templates", "feature-spec-template", spec_name), must_exist=True
                 )
                 if not spec_path.is_file():
-                    fail(f"canonical spec template is not a regular file: {spec_path.relative_to(ROOT)}")
-                base_docs[spec_name] = spec_path.read_text(encoding="utf-8-sig")
+                    fail(f"canonical spec template is not a regular file: {spec_path.relative_to(root)}")
+                base_docs[spec_name] = _read_utf8_bom_stripped(spec_path)
 
             if custom_dir.exists() or custom_dir.is_symlink():
-                custom_files = validate_custom_preset_dir(custom_dir, preset_name)
-                custom_map = {path.name: path.read_text(encoding="utf-8-sig") for path in custom_files}
+                custom_files = validate_custom_preset_dir(root, custom_dir, preset_name)
+                custom_map = {path.name: _read_utf8_bom_stripped(path) for path in custom_files}
                 merged = dict(base_docs)
                 for spec_name in CANONICAL_SPECS:
                     if spec_name in custom_map:
@@ -985,9 +997,9 @@ def main(argv: list[str] | None = None) -> int:
 
     target_dir = features_root / folder_name
     if target_dir.exists() or target_dir.is_symlink():
-        fail(f"target path already exists: {target_dir.relative_to(ROOT).as_posix()}")
+        fail(f"target path already exists: {target_dir.relative_to(root).as_posix()}")
 
-    rel_target_dir = target_dir.relative_to(ROOT).as_posix()
+    rel_target_dir = target_dir.relative_to(root).as_posix()
     if args.dry_run:
         print(f"DRY-RUN: would scaffold {rel_target_dir} (preset: {preset_name}, title: {title})")
         for filename, _content in ordered_files:
@@ -995,7 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_supersede_reminder(supersede_folder)
         return 0
 
-    if is_source_template_repository(ROOT):
+    if is_source_template_repository(root):
         fail(
             "refusing to scaffold feature specs inside the source ai-project-template repository "
             "(install into a target project first, or pass --dry-run to preview)"

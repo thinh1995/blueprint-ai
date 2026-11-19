@@ -1,7 +1,9 @@
 """Shared, portable Markdown validation for repository and installed docs."""
 
+from __future__ import annotations
+
+import hashlib
 import json
-import os
 import posixpath
 import re
 import subprocess
@@ -11,6 +13,67 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 sys.dont_write_bytecode = True
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+_REQUIRED_CORE_SYMBOLS = (
+    "ALLOWED_CREDENTIAL_PLACEHOLDERS",
+    "ALLOWED_EXTERNAL_SCHEMES",
+    "CREDENTIALED_URI_RE",
+    "EMPTY_TREE_SHA1",
+    "FORBIDDEN_APPROVED_PLACEHOLDERS",
+    "FORBIDDEN_URI_SCHEMES",
+    "GitCatFileBatch",
+    "HEX40_RE",
+    "HEX64_RE",
+    "SCHEME_RE",
+    "SDD_CORE_API_VERSION",
+    "SECRET_PATTERNS",
+    "_strip_yaml_scalar",
+    "atomic_write_bytes",
+    "is_source_template_repository",
+    "iter_frontmatter_entries",
+    "iter_markdown_link_targets",
+    "parse_frontmatter",
+    "parse_markdown_link_destination",
+    "read_bytes_nofollow",
+    "read_text_nofollow",
+    "require",
+    "resolve_git_toplevel",
+    "split_table_row",
+    "strip_code",
+    "strip_fenced_code",
+    "strip_frontmatter_and_bom",
+    "strip_outer_backticks",
+    "verify_git_root_no_symlink",
+    "walk_lexical_no_symlink",
+    "write_new_exclusive",
+)
+
+try:
+    import _sdd_core  # noqa: E402
+except ImportError as _core_exc:
+    _core_msg = (
+        f"docs_validation.py requires tools/_sdd_core.py in {_SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if user-owned): {_core_exc}"
+    )
+    if __name__ == "__main__":
+        print(f"FAIL: {_core_msg}", file=sys.stderr)
+        sys.exit(1)
+    raise ImportError(_core_msg) from _core_exc
+
+_missing_core = [sym for sym in _REQUIRED_CORE_SYMBOLS if not hasattr(_sdd_core, sym)]
+if getattr(_sdd_core, "SDD_CORE_API_VERSION", 0) < 1 or _missing_core:
+    _core_ver_msg = (
+        f"docs_validation.py requires an up-to-date tools/_sdd_core.py (SDD_CORE_API_VERSION >= 1) in {_SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if tools/_sdd_core.py is user-owned)"
+    )
+    if __name__ == "__main__":
+        print(f"FAIL: {_core_ver_msg}", file=sys.stderr)
+        sys.exit(1)
+    raise ImportError(_core_ver_msg)
 
 MINI_SPEC_FILE = "1. Mini Spec.md"
 NUMBERED_SPEC_FILES = {
@@ -28,16 +91,17 @@ APPROVAL_FIELDS = (
     "approval_evidence",
     "source_revision",
 )
-GOVERNANCE_KEYS = {"status", "superseded_by", "supersedes", *APPROVAL_FIELDS}
-FORBIDDEN_APPROVED_PLACEHOLDERS = {
-    "draft",
-    "todo",
-    "tbd",
-    "pending",
-    "n/a",
-    "none",
-    "-",
+GOVERNANCE_KEYS = {"status", "superseded_by", "supersedes", "contract_sha256", *APPROVAL_FIELDS}
+MUTABLE_STAMP_KEYS = {
+    "status",
+    "approved_by",
+    "approved_at",
+    "approval_evidence",
+    "source_revision",
+    "contract_sha256",
+    "superseded_by",
 }
+FORBIDDEN_APPROVED_PLACEHOLDERS = _sdd_core.FORBIDDEN_APPROVED_PLACEHOLDERS
 READINESS_SECTIONS = (
     "Open decisions",
     "Risks and open decisions",
@@ -68,141 +132,30 @@ TRIAGE_COLUMNS = (
 VALID_TRIAGE_STATUSES = {"open", "in progress", "mitigated", "accepted risk"}
 MAX_SUPERSEDED_HOPS = 16
 FORBIDDEN_SUPERSEDED_TERMINAL_STATUSES = {"archived", "template", "skipped", "example", ""}
-FORBIDDEN_URI_SCHEMES = ("file:", "javascript:", "data:", "vbscript:", "obsidian:")
-ALLOWED_EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "tel:")
-SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
-HEX40_RE = re.compile(r"^[0-9a-f]{40}$")
+FORBIDDEN_URI_SCHEMES = _sdd_core.FORBIDDEN_URI_SCHEMES
+ALLOWED_EXTERNAL_SCHEMES = _sdd_core.ALLOWED_EXTERNAL_SCHEMES
+SCHEME_RE = _sdd_core.SCHEME_RE
+HEX40_RE = _sdd_core.HEX40_RE
+HEX64_RE = _sdd_core.HEX64_RE
+EMPTY_TREE_SHA1 = _sdd_core.EMPTY_TREE_SHA1
 SEQ_PREFIX_RE = re.compile(r"^(\d{3})-")
 FEATURE_FOLDER_RE = re.compile(r"^(?:[0-9]{3}-)?[a-z0-9]+(?:-[a-z0-9]+)*$")
-SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("PEM private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key ID", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("GitHub personal/app token", re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b")),
-    ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
-    ("API secret key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
-)
-CREDENTIALED_URI_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://([^/\s:@]+):([^/\s@]+)@")
-ALLOWED_CREDENTIAL_PLACEHOLDERS = {
-    "user:pass",
-    "username:password",
-    "<user>:<pass>",
-    "<user>:<password>",
-    "<username>:<password>",
-    "placeholder:placeholder",
-    "***:***",
-    "redacted:redacted",
-}
+SECRET_PATTERNS = _sdd_core.SECRET_PATTERNS
+CREDENTIALED_URI_RE = _sdd_core.CREDENTIALED_URI_RE
+ALLOWED_CREDENTIAL_PLACEHOLDERS = _sdd_core.ALLOWED_CREDENTIAL_PLACEHOLDERS
+GitCatFileBatch = _sdd_core.GitCatFileBatch
 
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        raise ValueError(message)
-
-
-def read_markdown(path: Path) -> str:
-    """Read UTF-8 (with optional BOM) Markdown and normalize CRLF/CR line endings."""
-    return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-
-
-# Backward-compatible alias for existing callers (e.g. validate-template-docs.py).
+require = _sdd_core.require
+read_bytes_nofollow = _sdd_core.read_bytes_nofollow
+read_markdown = _sdd_core.read_text_nofollow
 read = read_markdown
-
-
-def strip_outer_backticks(value: str) -> str:
-    """Unwrap matching outer backtick code spans around a scalar table cell."""
-    stripped = value.strip()
-    match = re.fullmatch(r"(`+)([^`]*)\1", stripped)
-    if match:
-        return match.group(2).strip()
-    return stripped
-
-
-def strip_fenced_code(markdown_text: str) -> str:
-    """Remove CommonMark fenced code blocks while preserving line structure."""
-    text = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
-    out_lines: list[str] = []
-    fence_char = ""
-    fence_len = 0
-    for line in text.split("\n"):
-        if not fence_char:
-            m_bt = re.match(r"^[ \t]*(`{3,})([^`]*)$", line)
-            m_td = None if m_bt else re.match(r"^[ \t]*(~{3,})(.*)$", line)
-            m = m_bt or m_td
-            if m:
-                fence_char = m.group(1)[0]
-                fence_len = len(m.group(1))
-                out_lines.append("")
-                continue
-            out_lines.append(line)
-        else:
-            if re.match(rf"^[ \t]*{re.escape(fence_char)}{{{fence_len},}}[ \t]*$", line):
-                fence_char = ""
-                fence_len = 0
-            out_lines.append("")
-    return "\n".join(out_lines)
-
-
-def strip_code(markdown_text: str) -> str:
-    """Remove fenced blocks and CommonMark inline code spans before scanning markers."""
-    without_fences = strip_fenced_code(markdown_text)
-    return re.sub(r"(`+)([^\n]*?)\1", "", without_fences)
-
-
-def _strip_yaml_scalar(raw_val: str) -> str:
-    val = raw_val.strip()
-    if not val or val.startswith("#"):
-        return ""
-    if val[0] in {'"', "'"}:
-        quote = val[0]
-        idx = 1
-        out: list[str] = []
-        while idx < len(val):
-            ch = val[idx]
-            if quote == '"' and ch == "\\" and idx + 1 < len(val):
-                nxt = val[idx + 1]
-                escapes = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t", "/": "/"}
-                out.append(escapes.get(nxt, nxt))
-                idx += 2
-                continue
-            if quote == "'" and ch == "'" and idx + 1 < len(val) and val[idx + 1] == "'":
-                out.append("'")
-                idx += 2
-                continue
-            if ch == quote:
-                trailing = val[idx + 1 :].strip()
-                if not trailing or trailing.startswith("#"):
-                    return "".join(out).strip()
-                break
-            out.append(ch)
-            idx += 1
-        if len(val) >= 2 and val[-1] == quote:
-            return val[1:-1].strip()
-        return val
-    return re.split(r"[ \t]+#", val, maxsplit=1)[0].strip()
-
-
-def _iter_frontmatter_entries(markdown_text: str) -> list[tuple[str, str]]:
-    text = markdown_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
-    match = re.match(r"^---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|$)", text, flags=re.DOTALL)
-    if not match:
-        return []
-    entries: list[tuple[str, str]] = []
-    for line in (match.group(1) or "").split("\n"):
-        if line.startswith((" ", "\t")):
-            continue
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith("-") or ":" not in line:
-            continue
-        key, raw_val = line.split(":", 1)
-        key = key.strip()
-        if key:
-            entries.append((key, raw_val))
-    return entries
-
-
-def parse_frontmatter(markdown_text: str) -> dict[str, str]:
-    """Parse optional leading top-level YAML scalar frontmatter (skipping indented block/list lines)."""
-    return {key: _strip_yaml_scalar(raw_val) for key, raw_val in _iter_frontmatter_entries(markdown_text)}
+strip_outer_backticks = _sdd_core.strip_outer_backticks
+strip_fenced_code = _sdd_core.strip_fenced_code
+strip_code = _sdd_core.strip_code
+strip_frontmatter_and_bom = _sdd_core.strip_frontmatter_and_bom
+_strip_yaml_scalar = _sdd_core._strip_yaml_scalar
+_iter_frontmatter_entries = _sdd_core.iter_frontmatter_entries
+parse_frontmatter = _sdd_core.parse_frontmatter
 
 
 def _validate_governance_frontmatter(rel_path: Path | str, markdown_text: str) -> None:
@@ -319,29 +272,7 @@ def _iter_h2_sections(markdown_text: str, heading: str) -> list[str]:
     return sections
 
 
-def _split_table_row(line: str) -> list[str] | None:
-    stripped = line.strip()
-    if not stripped.startswith("|") or not stripped.endswith("|"):
-        return None
-    m_tail = re.search(r"(\\*)\|$", stripped)
-    if m_tail and len(m_tail.group(1)) % 2 == 1:
-        return None
-    cells: list[str] = []
-    last = 1
-    for m in re.finditer(r"(\\*)\|", stripped[1:]):
-        bs = m.group(1)
-        if len(bs) % 2 == 1:
-            continue
-        pipe_idx = 1 + m.end() - 1
-        raw_cell = stripped[last:pipe_idx]
-        unescaped = re.sub(
-            r"(\\*)\|",
-            lambda pm: pm.group(0) if len(pm.group(1)) % 2 == 0 else pm.group(1)[:-1] + "|",
-            raw_cell,
-        )
-        cells.append(unescaped.strip())
-        last = pipe_idx + 1
-    return cells or None
+_split_table_row = _sdd_core.split_table_row
 
 
 def _is_separator_row(cells: list[str]) -> bool:
@@ -421,113 +352,9 @@ def _extract_acs_from_rows(rows: list[dict[str, str]] | None, column: str) -> se
     return acs
 
 
-def _parse_markdown_link_destination(raw_inside: str) -> str:
-    inside = raw_inside.strip()
-    if inside.startswith("<"):
-        gt = inside.find(">")
-        if gt != -1:
-            return inside[1:gt].strip()
-    no_title = re.sub(r"""[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*')$""", "", inside).strip()
-    m_paren_title = re.match(r"^(\S+?)[ \t]+\([^)\r\n]*\)$", no_title)
-    if m_paren_title:
-        return m_paren_title.group(1).strip()
-    return no_title
-
-
-def _iter_markdown_link_targets(cleaned: str) -> list[str]:
-    targets: list[str] = []
-    idx = 0
-    n = len(cleaned)
-    while idx < n:
-        lb = cleaned.find("[", idx)
-        if lb == -1:
-            break
-        bs = 0
-        k = lb - 1
-        while k >= 0 and cleaned[k] == "\\":
-            bs += 1
-            k -= 1
-        if bs % 2 == 1:
-            idx = lb + 1
-            continue
-        rb = lb + 1
-        while rb < n and cleaned[rb] not in "\r\n":
-            if cleaned[rb] == "\\" and rb + 1 < n and cleaned[rb + 1] not in "\r\n":
-                rb += 2
-                continue
-            if cleaned[rb] in "[]":
-                break
-            rb += 1
-        if rb >= n or cleaned[rb] != "]" or rb + 1 >= n or cleaned[rb + 1] != "(":
-            idx = lb + 1
-            continue
-        p = rb + 2
-        while p < n and cleaned[p] in " \t":
-            p += 1
-        if p < n and cleaned[p] == "<":
-            gt = p + 1
-            while gt < n and cleaned[gt] not in ">\r\n":
-                if cleaned[gt] == "\\" and gt + 1 < n and cleaned[gt + 1] not in "\r\n":
-                    gt += 2
-                    continue
-                gt += 1
-            if gt < n and cleaned[gt] == ">":
-                tail_m = re.match(r"""^[ \t]*(?:(?:"[^"\r\n]*"|'[^'\r\n]*')[ \t]*)?\)""", cleaned[gt + 1 :])
-                if tail_m is not None:
-                    targets.append(cleaned[p + 1 : gt].strip())
-                    idx = gt + 1 + tail_m.end()
-                    continue
-        else:
-            depth = 1
-            q = p
-            while q < n and depth > 0 and cleaned[q] not in "\r\n":
-                if cleaned[q] == "\\" and q + 1 < n and cleaned[q + 1] not in "\r\n":
-                    q += 2
-                    continue
-                if cleaned[q] == "(":
-                    depth += 1
-                elif cleaned[q] == ")":
-                    depth -= 1
-                    if depth == 0:
-                        break
-                q += 1
-            if depth == 0:
-                targets.append(_parse_markdown_link_destination(cleaned[p:q]))
-                idx = q + 1
-                continue
-        idx = rb + 1
-    return targets
-
-
-def _walk_lexical_no_symlink(
-    root_resolved: Path,
-    start_dir: Path,
-    rel_target: str,
-    escape_msg: str,
-    symlink_msg: str,
-    err_prefix: str,
-) -> Path:
-    require(not root_resolved.is_symlink(), f"{err_prefix}: repository root cannot be a symlink")
-    require(start_dir.is_relative_to(root_resolved), escape_msg)
-    cur = root_resolved
-    for part in start_dir.relative_to(root_resolved).parts:
-        cur = cur / part
-        require(not cur.is_symlink(), symlink_msg)
-    for part in rel_target.split("/"):
-        if part in ("", "."):
-            continue
-        if part == "..":
-            require(cur != root_resolved, escape_msg)
-            cur = cur.parent
-            continue
-        cur = cur / part
-        require(not cur.is_symlink(), symlink_msg)
-    try:
-        resolved = cur.resolve()
-    except OSError as exc:
-        raise ValueError(f"{err_prefix}: invalid link target {rel_target} ({exc})") from exc
-    require(resolved.is_relative_to(root_resolved), escape_msg)
-    return resolved
+_parse_markdown_link_destination = _sdd_core.parse_markdown_link_destination
+_iter_markdown_link_targets = _sdd_core.iter_markdown_link_targets
+_walk_lexical_no_symlink = _sdd_core.walk_lexical_no_symlink
 
 
 def _ensure_within_root_no_symlink(root_resolved: Path, start_dir: Path, rel_target: str, err_prefix: str) -> Path:
@@ -945,29 +772,171 @@ def _normalize_task_contract(rel_path: Path | str, raw_text: str) -> list[tuple[
     return out
 
 
-def _verify_git_root_no_symlink(git_root: Path, git_top: Path, *, err_prefix: str) -> Path:
-    require(not git_root.is_symlink(), f"{err_prefix}: project root cannot be a symlink: {git_root}")
-    abs_git_root = Path(os.path.abspath(git_root))
-    tail_parts: tuple[str, ...] | None = None
-    for candidate in (abs_git_root, *abs_git_root.parents):
-        try:
-            if candidate.is_symlink():
+def _normalize_task_immutable_columns(rel_path: Path | str, raw_text: str) -> list[list[object]]:
+    tasks = parse_execution_tasks(rel_path, raw_text, require_table=False)
+    if not tasks:
+        return []
+    out: list[list[object]] = []
+    for t in tasks:
+        out.append(
+            [
+                str(t["task_id"]),
+                bool(t["parallel"]),
+                list(t["depends_on"]),  # type: ignore[arg-type]
+                list(t["related_ac"]),  # type: ignore[arg-type]
+                list(t["owned_paths_posix"]),  # type: ignore[arg-type]
+                re.sub(r"\s+", " ", str(t["summary"]).strip()),
+                re.sub(r"\s+", " ", str(t["verification"]).strip()),
+            ]
+        )
+    return out
+
+
+def _strip_validation_evidence_section(rel_path: Path | str, body: str) -> str:
+    out: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    in_val_evidence = False
+    for line in body.split("\n"):
+        if not fence_char:
+            m_f = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", line)
+            if m_f and not (m_f.group(1)[0] == "`" and "`" in m_f.group(2)):
+                fence_char, fence_len = m_f.group(1)[0], len(m_f.group(1))
+                if not in_val_evidence:
+                    out.append(line)
                 continue
-            if candidate.exists() and candidate.resolve() == git_top:
-                tail_parts = abs_git_root.parts[len(candidate.parts) :]
-                break
-        except OSError:
-            continue
-    if tail_parts is None:
-        raise ValueError(f"{err_prefix}: symlinked directory between git toplevel and project root refused")
-    return _walk_lexical_no_symlink(
-        git_top,
-        git_top,
-        "/".join(tail_parts),
-        escape_msg=f"{err_prefix}: project root escapes git toplevel",
-        symlink_msg=f"{err_prefix}: symlinked directory between git toplevel and project root refused",
-        err_prefix=err_prefix,
-    )
+            h12_m = re.match(r"^(#{1,2})[ \t]+(.*?)[ \t]*$", line)
+            if h12_m:
+                if h12_m.group(1) == "##" and h12_m.group(2).strip().lower() == "validation evidence":
+                    in_val_evidence = True
+                    while out and not out[-1].strip():
+                        out.pop()
+                    continue
+                if in_val_evidence:
+                    in_val_evidence = False
+                    if out:
+                        out.append("")
+                out.append(line)
+                continue
+            if in_val_evidence:
+                if re.match(r"^#{3,6}[ \t]+", line):
+                    raise ValueError(
+                        f"{rel_path}: '###' subheadings are forbidden inside '## Validation evidence'"
+                    )
+                continue
+        else:
+            if re.match(rf"^[ \t]*{re.escape(fence_char)}{{{fence_len},}}[ \t]*$", line):
+                fence_char, fence_len = "", 0
+            if in_val_evidence:
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _strip_execution_task_table_lines(body: str) -> str:
+    lines = body.split("\n")
+    out: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    in_exec_tasks = False
+    idx = 0
+    n = len(lines)
+    while idx < n:
+        line = lines[idx]
+        if not fence_char:
+            m_f = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", line)
+            if m_f and not (m_f.group(1)[0] == "`" and "`" in m_f.group(2)):
+                fence_char, fence_len = m_f.group(1)[0], len(m_f.group(1))
+                out.append(line)
+                idx += 1
+                continue
+            h12_m = re.match(r"^(#{1,2})[ \t]+(.*?)[ \t]*$", line)
+            if h12_m:
+                in_exec_tasks = h12_m.group(1) == "##" and h12_m.group(2).strip().lower() == "execution tasks"
+                out.append(line)
+                idx += 1
+                continue
+            if in_exec_tasks and idx + 1 < n:
+                header_cells = _split_table_row(line)
+                sep_cells = _split_table_row(lines[idx + 1]) if header_cells is not None else None
+                if (
+                    header_cells is not None
+                    and sep_cells is not None
+                    and len(sep_cells) == len(header_cells)
+                    and _is_separator_row(sep_cells)
+                ):
+                    norm_headers = {re.sub(r"\s+", " ", h.strip().lower()) for h in header_cells}
+                    if all(col in norm_headers for col in TASK_COLUMNS):
+                        out.append("<<EXECUTION_TASKS_TABLE>>")
+                        idx += 2
+                        while idx < n and _split_table_row(lines[idx]) is not None:
+                            idx += 1
+                        continue
+        elif re.match(rf"^[ \t]*{re.escape(fence_char)}{{{fence_len},}}[ \t]*$", line):
+            fence_char, fence_len = "", 0
+        out.append(line)
+        idx += 1
+    return "\n".join(out)
+
+
+def _normalize_non_readiness_checkboxes(body: str) -> str:
+    out: list[str] = []
+    fence_char = ""
+    fence_len = 0
+    in_readiness = False
+    readiness_lower = {s.lower() for s in READINESS_SECTIONS}
+    for line in body.split("\n"):
+        if not fence_char:
+            m_f = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", line)
+            if m_f and not (m_f.group(1)[0] == "`" and "`" in m_f.group(2)):
+                fence_char, fence_len = m_f.group(1)[0], len(m_f.group(1))
+                out.append(line)
+                continue
+            h_m = re.match(r"^(#{1,2})[ \t]+(.*?)[ \t]*$", line)
+            if h_m:
+                in_readiness = h_m.group(1) == "##" and h_m.group(2).strip().lower() in readiness_lower
+                out.append(line)
+                continue
+            if not in_readiness:
+                line = re.sub(r"^([ \t]*[-*+][ \t]+)\[[xX ]\]", r"\1[ ]", line)
+        elif re.match(rf"^[ \t]*{re.escape(fence_char)}{{{fence_len},}}[ \t]*$", line):
+            fence_char, fence_len = "", 0
+        out.append(line)
+    return "\n".join(out)
+
+
+def compute_contract_sha256(spec_name: str, rel_path: Path | str, raw_text: str) -> str:
+    """Compute canonical 64-hex SHA-256 locking non-stamp frontmatter, ACs, immutable task columns, and body."""
+    fm = parse_frontmatter(raw_text)
+    frontmatter_locked = [[k, v] for k, v in sorted(fm.items()) if k not in MUTABLE_STAMP_KEYS]
+    body = strip_frontmatter_and_bom(raw_text)
+    if spec_name in {"3. QA Spec.md", MINI_SPEC_FILE}:
+        body = _strip_validation_evidence_section(rel_path, body)
+    if spec_name in {"4. Tasks.md", MINI_SPEC_FILE}:
+        body = _strip_execution_task_table_lines(body)
+    body = _normalize_non_readiness_checkboxes(body).rstrip("\n")
+
+    ac_rows: list[list[list[str]]] = []
+    if spec_name in {"1. Product Spec.md", MINI_SPEC_FILE}:
+        ac_rows = [[list(pair) for pair in row] for row in _normalize_ac_contract(rel_path, raw_text)]
+
+    tasks: list[list[object]] = []
+    if spec_name in {"4. Tasks.md", MINI_SPEC_FILE}:
+        tasks = _normalize_task_immutable_columns(rel_path, raw_text)
+
+    payload = {
+        "schema": 1,
+        "spec": spec_name,
+        "frontmatter_locked": frontmatter_locked,
+        "ac_rows": ac_rows,
+        "tasks": tasks,
+        "body": body,
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+_verify_git_root_no_symlink = _sdd_core.verify_git_root_no_symlink
 
 
 def _resolve_git_spec_path(git_root: Path, spec_rel_to_root: str) -> tuple[Path, str] | None:
@@ -998,10 +967,80 @@ def _resolve_git_spec_path(git_root: Path, spec_rel_to_root: str) -> tuple[Path,
     return git_top, git_rel
 
 
+def _hist_contract_sha_for_entry(
+    spec_name: str,
+    rel_path: Path | str,
+    hist_raw: str,
+    hist_fm: dict[str, str],
+) -> str:
+    stored = hist_fm.get("contract_sha256", "").strip().lower()
+    try:
+        computed = compute_contract_sha256(spec_name, rel_path, hist_raw)
+    except ValueError:
+        return ""
+    if stored:
+        if HEX64_RE.fullmatch(stored) and not re.fullmatch(r"0+", stored) and stored == computed:
+            return stored
+        return ""
+    return computed
+
+
+def _find_all_approved_entries(
+    git_root: Path,
+    posix_spec_path: str,
+    *,
+    _raise_on_oserror: bool = False,
+) -> list[tuple[str, str, dict[str, str]]]:
+    """Return all chronological (commit_sha, raw_text, frontmatter) entries where status == 'approved'."""
+    resolved_git = _resolve_git_spec_path(git_root, posix_spec_path)
+    if resolved_git is None:
+        return []
+    git_top, git_rel = resolved_git
+    try:
+        proc = subprocess.run(
+            ["git", "--literal-pathspecs", "-C", str(git_top), "log", "--format=%H", "--reverse", "--", git_rel],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        if _raise_on_oserror:
+            raise
+        return []
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+
+    shas = [
+        s.strip().lower()
+        for s in proc.stdout.splitlines()
+        if HEX40_RE.fullmatch(s.strip().lower()) and not re.fullmatch(r"0+", s.strip().lower())
+    ]
+    if not shas:
+        return []
+
+    entries: list[tuple[str, str, dict[str, str]]] = []
+    try:
+        with GitCatFileBatch(git_top) as batch:
+            for sha_clean in shas:
+                blob = batch.read_blob(f"{sha_clean}:{git_rel}")
+                if blob is None:
+                    continue
+                hist_raw = blob.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+                hist_fm = parse_frontmatter(hist_raw)
+                if hist_fm.get("status", "").strip().lower() == "approved":
+                    entries.append((sha_clean, hist_raw, hist_fm))
+    except OSError:
+        if _raise_on_oserror:
+            raise
+        return []
+    return entries
+
+
 def _find_approved_commit_entry(
     git_root: Path,
     posix_spec_path: str,
     source_revision: str | None = None,
+    *,
+    contract_sha256: str | None = None,
 ) -> tuple[str, str, dict[str, str]] | None:
     resolved_git = _resolve_git_spec_path(git_root, posix_spec_path)
     if resolved_git is None:
@@ -1019,26 +1058,30 @@ def _find_approved_commit_entry(
         return None
 
     target_rev = source_revision.strip() if source_revision is not None else None
-    for sha in proc.stdout.splitlines():
-        sha_clean = sha.strip().lower()
-        if not HEX40_RE.fullmatch(sha_clean) or re.fullmatch(r"0+", sha_clean):
-            continue
-        try:
-            show_proc = subprocess.run(
-                ["git", "--literal-pathspecs", "-C", str(git_top), "show", f"{sha_clean}:{git_rel}"],
-                capture_output=True,
-            )
-        except OSError:
-            return None
-        if show_proc.returncode != 0:
-            continue
-        hist_raw = show_proc.stdout.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-        hist_fm = parse_frontmatter(hist_raw)
-        if hist_fm.get("status", "").strip().lower() != "approved":
-            continue
-        if target_rev is not None and str(hist_fm.get("source_revision", "")).strip() != target_rev:
-            continue
-        return sha_clean, hist_raw, hist_fm
+    target_csha = contract_sha256.strip().lower() if contract_sha256 is not None else None
+    spec_name = Path(posix_spec_path).name
+    try:
+        with GitCatFileBatch(git_top) as batch:
+            for sha in proc.stdout.splitlines():
+                sha_clean = sha.strip().lower()
+                if not HEX40_RE.fullmatch(sha_clean) or re.fullmatch(r"0+", sha_clean):
+                    continue
+                blob = batch.read_blob(f"{sha_clean}:{git_rel}")
+                if blob is None:
+                    continue
+                hist_raw = blob.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+                hist_fm = parse_frontmatter(hist_raw)
+                if hist_fm.get("status", "").strip().lower() != "approved":
+                    continue
+                if target_rev is not None and str(hist_fm.get("source_revision", "")).strip() != target_rev:
+                    continue
+                if target_csha is not None:
+                    hist_csha = _hist_contract_sha_for_entry(spec_name, posix_spec_path, hist_raw, hist_fm)
+                    if hist_csha != target_csha:
+                        continue
+                return sha_clean, hist_raw, hist_fm
+    except OSError:
+        return None
     return None
 
 
@@ -1059,6 +1102,55 @@ def _find_any_approved_history(
     """Return (raw_text, frontmatter) of the earliest historical status=approved commit, if any."""
     entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=None)
     return (entry[1], entry[2]) if entry is not None else None
+
+
+def _verify_contract_sha256_value(
+    spec_name: str,
+    rel_path: Path | str,
+    raw: str,
+    raw_csha: str,
+    status_label: str,
+) -> str:
+    require(
+        bool(raw_csha),
+        f"{rel_path}: status: {status_label} with source_revision: self requires non-empty frontmatter 'contract_sha256'",
+    )
+    require(
+        raw_csha.lower() not in FORBIDDEN_APPROVED_PLACEHOLDERS,
+        f"{rel_path}: status: {status_label} forbids placeholder value '{raw_csha}' in 'contract_sha256'",
+    )
+    require(
+        bool(HEX64_RE.fullmatch(raw_csha)) and not re.fullmatch(r"0+", raw_csha),
+        f"{rel_path}: status: {status_label} requires 64-char lowercase hex SHA-256 in 'contract_sha256' (got '{raw_csha}')",
+    )
+    computed_csha = compute_contract_sha256(spec_name, rel_path, raw)
+    require(
+        computed_csha == raw_csha,
+        f"{rel_path}: post-approval tampering detected — contract_sha256 mismatch "
+        f"(expected '{raw_csha}', computed '{computed_csha}'); "
+        "run stamp-spec.py --amend after explicit user re-approval",
+    )
+    return raw_csha
+
+
+def _check_missing_git_binary_warning(
+    effective_git_root: Path,
+    rel_path: Path | str,
+    src_rev: str,
+    strict: bool,
+    warnings: list[str],
+) -> None:
+    try:
+        probe_root = effective_git_root.resolve()
+    except OSError:
+        probe_root = effective_git_root
+    if any((cand / ".git").exists() for cand in (probe_root, *probe_root.parents)):
+        try:
+            subprocess.run(["git", "--version"], capture_output=True, text=True)
+        except OSError:
+            if strict:
+                raise ValueError(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+            warnings.append(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
 
 
 def _verify_source_revision_and_baseline(
@@ -1088,31 +1180,77 @@ def _verify_source_revision_and_baseline(
         f"{rel_path}: status: {status_label} forbids all-zero source_revision '{src_rev}'",
     )
 
+    raw_csha = fm.get("contract_sha256", "").strip()
+    if src_rev == "self" or raw_csha:
+        _verify_contract_sha256_value(spec_path.name, rel_path, raw, raw_csha, status_label)
+
+    effective_git_root = root if git_root is None else git_root
+    posix_spec_path = rel_path.as_posix()
+
+    if src_rev == "self":
+        git_ctx = _resolve_git_spec_path(effective_git_root, posix_spec_path)
+        if git_ctx is None:
+            _check_missing_git_binary_warning(effective_git_root, rel_path, src_rev, strict, warnings)
+            require(
+                not require_git_baseline,
+                f"{rel_path}: status: {status_label} requires Git history baseline for source_revision 'self'",
+            )
+            return warnings
+
+        try:
+            hist_entries = _find_all_approved_entries(
+                effective_git_root, posix_spec_path, _raise_on_oserror=True
+            )
+        except OSError:
+            if strict:
+                raise ValueError(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+            warnings.append(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+            return warnings
+
+        if require_git_baseline:
+            matched_hist = any(
+                _hist_contract_sha_for_entry(spec_path.name, rel_path, h_raw, h_fm) == raw_csha
+                for _sha, h_raw, h_fm in hist_entries
+            )
+            require(
+                matched_hist,
+                f"{rel_path}: status: {status_label} altered historical approved 'contract_sha256' ('{raw_csha}')",
+            )
+
+        curr_meta = (
+            fm.get("approved_by", "").strip(),
+            fm.get("approved_at", "").strip(),
+            fm.get("approval_evidence", "").strip(),
+        )
+        for hist_sha, hist_raw, hist_fm in hist_entries:
+            hist_meta = (
+                hist_fm.get("approved_by", "").strip(),
+                hist_fm.get("approved_at", "").strip(),
+                hist_fm.get("approval_evidence", "").strip(),
+            )
+            if hist_meta == curr_meta:
+                hist_csha = _hist_contract_sha_for_entry(spec_path.name, rel_path, hist_raw, hist_fm)
+                require(
+                    hist_csha == raw_csha,
+                    f"{rel_path}: anti-forgery check failed — contract_sha256 ('{raw_csha[:12]}...') differs from "
+                    f"historical approved commit {hist_sha[:12]} sharing identical "
+                    "(approved_by, approved_at, approval_evidence); run stamp-spec.py --amend to record a new approval timestamp",
+                )
+        return warnings
+
     if not HEX40_RE.fullmatch(src_rev):
         if strict:
             raise ValueError(
-                f"{rel_path}: status: {status_label} requires 40-char lowercase hex Git SHA in source_revision (got '{src_rev}')"
+                f"{rel_path}: status: {status_label} requires 'self' or 40-char lowercase hex Git SHA in source_revision (got '{src_rev}')"
             )
         warnings.append(
             f"{rel_path}: legacy non-40-hex source_revision '{src_rev}' on {status_label} spec (enforced as error with --strict)"
         )
         return warnings
 
-    effective_git_root = root if git_root is None else git_root
-    posix_spec_path = rel_path.as_posix()
     git_ctx = _resolve_git_spec_path(effective_git_root, posix_spec_path)
     if git_ctx is None:
-        try:
-            probe_root = effective_git_root.resolve()
-        except OSError:
-            probe_root = effective_git_root
-        if any((cand / ".git").exists() for cand in (probe_root, *probe_root.parents)):
-            try:
-                subprocess.run(["git", "--version"], capture_output=True, text=True)
-            except OSError:
-                if strict:
-                    raise ValueError(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
-                warnings.append(f"{rel_path}: git binary unavailable to verify source_revision '{src_rev}'")
+        _check_missing_git_binary_warning(effective_git_root, rel_path, src_rev, strict, warnings)
         return warnings
 
     git_top, _git_rel = git_ctx
@@ -1452,19 +1590,34 @@ def _check_archived_spec_history(
     fm: dict[str, str],
     *,
     git_root: Path | None = None,
+    raw: str | None = None,
 ) -> None:
     if spec_path.name not in SPEC_PACK_FILES:
         return
     effective_git_root = root if git_root is None else git_root
     rel_path = spec_path.relative_to(root)
-    hist = _find_any_approved_history(effective_git_root, rel_path.as_posix())
-    if hist is None:
+    src_rev = fm.get("source_revision", "").strip()
+    raw_csha = fm.get("contract_sha256", "").strip()
+    if src_rev == "self" or raw_csha:
+        raw_text = read_markdown(spec_path) if raw is None else raw
+        _verify_contract_sha256_value(spec_path.name, rel_path, raw_text, raw_csha, "archived")
+    hist_entries = _find_all_approved_entries(effective_git_root, rel_path.as_posix())
+    if not hist_entries:
         return
     for field in ("approved_by", "source_revision"):
         val = fm.get(field, "").strip()
         require(
             bool(val) and val.lower() not in FORBIDDEN_APPROVED_PLACEHOLDERS,
             f"{rel_path}: status: archived on formerly approved spec must preserve non-empty '{field}'",
+        )
+    if src_rev == "self":
+        matched_hist = any(
+            _hist_contract_sha_for_entry(spec_path.name, rel_path, h_raw, h_fm) == raw_csha
+            for _sha, h_raw, h_fm in hist_entries
+        )
+        require(
+            matched_hist,
+            f"{rel_path}: status: archived altered historical approved 'contract_sha256' ('{raw_csha}')",
         )
 
 
@@ -1704,7 +1857,7 @@ def validate_clarify_gate(
             continue
         if status == "archived":
             if in_current:
-                _check_archived_spec_history(root, path, fm, git_root=git_root)
+                _check_archived_spec_history(root, path, fm, git_root=git_root, raw=raw)
             continue
         if status not in {"draft", "approved", "example"}:
             continue
@@ -1905,7 +2058,7 @@ def validate_feature_folder(
         elif in_current_pack and only_status == "archived":
             for spec_path in present:
                 _check_archived_spec_history(
-                    root, spec_path, frontmatters[spec_path], git_root=git_root
+                    root, spec_path, frontmatters[spec_path], git_root=git_root, raw=raw_texts[spec_path]
                 )
         return warnings
 
@@ -1937,6 +2090,23 @@ def validate_feature_folder(
                         git_root=git_root,
                     )
                 )
+        if target_status == "approved":
+            pack_src_revs = {frontmatters[p].get("source_revision", "").strip() for p in present}
+            src_rev_summary = ", ".join(
+                f"{p.name}={frontmatters[p].get('source_revision', '').strip()}" for p in present
+            )
+            require(
+                len(pack_src_revs) == 1,
+                f"{rel_feature}: divergent 'source_revision' across approved feature pack ({src_rev_summary})",
+            )
+            pack_approved_ats = {frontmatters[p].get("approved_at", "").strip() for p in present}
+            approved_at_summary = ", ".join(
+                f"{p.name}={frontmatters[p].get('approved_at', '').strip()}" for p in present
+            )
+            require(
+                len(pack_approved_ats) == 1,
+                f"{rel_feature}: divergent 'approved_at' across approved feature pack ({approved_at_summary})",
+            )
         if not p4.is_file():
             if require_tasks:
                 raise ValueError(
@@ -2100,46 +2270,8 @@ def validate_feature_specs(
     return warnings
 
 
-def is_source_template_repository(root: Path) -> bool:
-    """Return True if root is the canonical ai-project-template source repository."""
-    manifest_path = root / "template-manifest.json"
-    if manifest_path.is_symlink() or not manifest_path.is_file():
-        return False
-    lib_path = root / "lib" / "installer_lib.py"
-    internal_dir = root / "docs" / "internal"
-    if lib_path.is_symlink() or not lib_path.is_file() or internal_dir.is_symlink() or not internal_dir.is_dir():
-        return False
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return (
-        isinstance(manifest, dict)
-        and manifest.get("template") == "ai-agent-obsidian-project-template"
-        and "requested_models" not in manifest
-        and "selected_models" not in manifest
-    )
-
-
-def resolve_git_toplevel(root: Path) -> Path | None:
-    """Return resolved Git repository toplevel containing root, or None if unavailable."""
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if proc.returncode != 0:
-        return None
-    raw_top = proc.stdout.strip()
-    if not raw_top:
-        return None
-    try:
-        return Path(raw_top).resolve()
-    except OSError:
-        return None
+is_source_template_repository = _sdd_core.is_source_template_repository
+resolve_git_toplevel = _sdd_core.resolve_git_toplevel
 
 
 def _find_earliest_approved_commit_sha(root: Path, posix_spec_path: str) -> str | None:
@@ -2152,10 +2284,20 @@ def _find_matching_approved_commit_sha(
     root: Path,
     posix_spec_path: str,
     source_revision: str | None,
+    *,
+    contract_sha256: str | None = None,
 ) -> str | None:
-    """Return the earliest 40-hex commit SHA where posix_spec_path had status: approved and matching source_revision."""
+    """Return the earliest 40-hex commit SHA where posix_spec_path had status: approved and matching provenance."""
     if source_revision is not None:
         src_clean = source_revision.strip().lower()
+        if src_clean == "self":
+            entry = _find_approved_commit_entry(
+                root,
+                posix_spec_path,
+                source_revision="self",
+                contract_sha256=contract_sha256,
+            )
+            return entry[0] if entry is not None else None
         if HEX40_RE.fullmatch(src_clean) and not re.fullmatch(r"0+", src_clean):
             entry = _find_approved_commit_entry(root, posix_spec_path, source_revision=src_clean)
             if entry is not None:
@@ -2558,6 +2700,26 @@ def _resolve_owned_paths_target_dir(
     return target_dir
 
 
+def _resolve_empty_tree_sha(
+    root_resolved: Path,
+    err_msg: str = "failed to compute empty Git tree hash",
+) -> str:
+    cat_proc = subprocess.run(
+        ["git", "-C", str(root_resolved), "cat-file", "-t", EMPTY_TREE_SHA1],
+        capture_output=True,
+        text=True,
+    )
+    if cat_proc.returncode == 0 and cat_proc.stdout.strip() == "tree":
+        return EMPTY_TREE_SHA1
+    empty_proc = subprocess.run(
+        ["git", "-C", str(root_resolved), "hash-object", "-t", "tree", "/dev/null"],
+        capture_output=True,
+        text=True,
+    )
+    require(empty_proc.returncode == 0, err_msg)
+    return empty_proc.stdout.strip()
+
+
 def _collect_working_and_staged_paths(root_resolved: Path, has_head: bool) -> list[str]:
     raw_changed_strings = _run_git_raw_z_diff(
         root_resolved, [], "working-tree diff", "git working-tree diff failed"
@@ -2565,22 +2727,9 @@ def _collect_working_and_staged_paths(root_resolved: Path, has_head: bool) -> li
     if has_head:
         staged_args = ["--cached"]
     else:
-        sha1_empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-        cat_proc = subprocess.run(
-            ["git", "-C", str(root_resolved), "cat-file", "-t", sha1_empty_tree],
-            capture_output=True,
-            text=True,
+        empty_tree_sha = _resolve_empty_tree_sha(
+            root_resolved, "failed to compute empty Git tree hash for unborn HEAD"
         )
-        if cat_proc.returncode == 0 and cat_proc.stdout.strip() == "tree":
-            empty_tree_sha = sha1_empty_tree
-        else:
-            empty_proc = subprocess.run(
-                ["git", "-C", str(root_resolved), "hash-object", "-t", "tree", "/dev/null"],
-                capture_output=True,
-                text=True,
-            )
-            require(empty_proc.returncode == 0, "failed to compute empty Git tree hash for unborn HEAD")
-            empty_tree_sha = empty_proc.stdout.strip()
         staged_args = ["--cached", empty_tree_sha]
     raw_changed_strings.extend(
         _run_git_raw_z_diff(root_resolved, staged_args, "staged diff", "git staged diff failed")
@@ -2616,6 +2765,38 @@ def _collect_working_and_staged_paths(root_resolved: Path, has_head: bool) -> li
     return raw_changed_strings
 
 
+def _resolve_commit_parent_or_empty_tree(root_resolved: Path, commit_sha: str) -> tuple[str, bool]:
+    parent_proc = subprocess.run(
+        [
+            "git",
+            "--literal-pathspecs",
+            "-C",
+            str(root_resolved),
+            "rev-parse",
+            "--verify",
+            f"{commit_sha}~1^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if parent_proc.returncode == 0:
+        parent_sha = parent_proc.stdout.strip().lower()
+        if HEX40_RE.fullmatch(parent_sha):
+            return parent_sha, False
+    return _resolve_empty_tree_sha(root_resolved), True
+
+
+def _git_has_head_blob(git_top: Path, git_rel: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "--literal-pathspecs", "-C", str(git_top), "cat-file", "-e", f"HEAD:{git_rel}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
+    )
+
+
 def _resolve_owned_paths_diff_base(
     root_resolved: Path,
     head_sha: str,
@@ -2624,7 +2805,9 @@ def _resolve_owned_paths_diff_base(
     fms: dict[Path, dict[str, str]],
     rel_feature: str,
     warnings: list[str],
-) -> str:
+    *,
+    prior_entries: list[tuple[str, str, dict[str, str]]] | None = None,
+) -> tuple[str, bool]:
     if base_rev is not None:
         base_clean = base_rev.strip()
         require(
@@ -2640,7 +2823,7 @@ def _resolve_owned_paths_diff_base(
             verify_base.returncode == 0,
             f"--base revision '{base_rev}' is invalid or unavailable in Git history",
         )
-        return verify_base.stdout.strip().lower()
+        return verify_base.stdout.strip().lower(), False
 
     branch_proc = subprocess.run(
         ["git", "-C", str(root_resolved), "branch", "--show-current"],
@@ -2672,7 +2855,7 @@ def _resolve_owned_paths_diff_base(
         for ref in ("origin/HEAD", "main", "master"):
             mb = _merge_base_differs(ref)
             if mb is not None:
-                return mb
+                return mb, False
 
         up_proc = subprocess.run(
             [
@@ -2696,45 +2879,77 @@ def _resolve_owned_paths_diff_base(
             ):
                 mb = _merge_base_differs("@{upstream}")
                 if mb is not None:
-                    return mb
+                    return mb, False
 
     tasks_rel_posix = tasks_file.relative_to(root_resolved).as_posix()
     spec_src_rev = fms[tasks_file].get("source_revision", "").strip().lower()
-    candidate_base = _find_matching_approved_commit_sha(
-        root_resolved, tasks_rel_posix, spec_src_rev
+    tasks_csha = fms[tasks_file].get("contract_sha256", "").strip().lower()
+    resolved_prior = (
+        prior_entries
+        if prior_entries is not None
+        else _find_all_approved_entries(root_resolved, tasks_rel_posix)
     )
-    if candidate_base is None:
-        if HEX40_RE.fullmatch(spec_src_rev) and not re.fullmatch(r"0+", spec_src_rev):
-            candidate_base = spec_src_rev
+    cand = _find_matching_approved_commit_sha(
+        root_resolved,
+        tasks_rel_posix,
+        spec_src_rev,
+        contract_sha256=(tasks_csha if spec_src_rev == "self" else None),
+    )
+
+    is_empty_tree_base = False
+    candidate_base: str | None = None
+    if spec_src_rev == "self":
+        if cand is not None:
+            if cand == head_sha:
+                candidate_base, is_empty_tree_base = _resolve_commit_parent_or_empty_tree(root_resolved, cand)
+            else:
+                candidate_base = cand
+        elif not resolved_prior:
+            candidate_base = head_sha
+        else:
+            last_approved_sha = resolved_prior[-1][0]
+            if last_approved_sha == head_sha:
+                candidate_base, is_empty_tree_base = _resolve_commit_parent_or_empty_tree(
+                    root_resolved, last_approved_sha
+                )
+            else:
+                candidate_base = last_approved_sha
+    else:
+        candidate_base = cand
+        if candidate_base is None:
+            if HEX40_RE.fullmatch(spec_src_rev) and not re.fullmatch(r"0+", spec_src_rev):
+                candidate_base = spec_src_rev
+
     require(
         candidate_base is not None,
         f"unable to determine diff base automatically for '{rel_feature}'; pass --base <git-rev>",
     )
     assert candidate_base is not None
-    cat_proc = subprocess.run(
-        ["git", "-C", str(root_resolved), "cat-file", "-e", f"{candidate_base}^{{commit}}"],
-        capture_output=True,
-        text=True,
-    )
-    if cat_proc.returncode != 0:
-        shallow_proc = subprocess.run(
-            ["git", "-C", str(root_resolved), "rev-parse", "--is-shallow-repository"],
+    if not is_empty_tree_base:
+        cat_proc = subprocess.run(
+            ["git", "-C", str(root_resolved), "cat-file", "-e", f"{candidate_base}^{{commit}}"],
             capture_output=True,
             text=True,
         )
-        if shallow_proc.returncode == 0 and shallow_proc.stdout.strip() == "true":
-            raise ValueError(
-                f"diff base commit '{candidate_base}' is missing in shallow Git clone; fetch full history or pass --base <git-rev>"
+        if cat_proc.returncode != 0:
+            shallow_proc = subprocess.run(
+                ["git", "-C", str(root_resolved), "rev-parse", "--is-shallow-repository"],
+                capture_output=True,
+                text=True,
             )
-        raise ValueError(
-            f"diff base commit '{candidate_base}' is unavailable in Git history; pass --base <git-rev>"
-        )
+            if shallow_proc.returncode == 0 and shallow_proc.stdout.strip() == "true":
+                raise ValueError(
+                    f"diff base commit '{candidate_base}' is missing in shallow Git clone; fetch full history or pass --base <git-rev>"
+                )
+            raise ValueError(
+                f"diff base commit '{candidate_base}' is unavailable in Git history; pass --base <git-rev>"
+            )
     if curr_branch in {"main", "master"}:
         warnings.append(
             f"running --check-owned-paths directly on '{curr_branch}' without --base "
             f"(using baseline {candidate_base[:12]}); pass --base <rev> for explicit range"
         )
-    return candidate_base
+    return candidate_base, is_empty_tree_base
 
 
 def validate_owned_paths_diff(
@@ -2788,6 +3003,40 @@ def validate_owned_paths_diff(
                 f"{rel_feature}: approved feature pack requires {req_name} for --check-owned-paths",
             )
         tasks_file = target_dir / "4. Tasks.md"
+        pack_src_revs = {fms[p].get("source_revision", "").strip() for p in spec_files}
+        require(
+            len(pack_src_revs) == 1,
+            f"{rel_feature}: divergent 'source_revision' across approved feature pack",
+        )
+        pack_approved_ats = {fms[p].get("approved_at", "").strip() for p in spec_files}
+        require(
+            len(pack_approved_ats) == 1,
+            f"{rel_feature}: divergent 'approved_at' across approved feature pack",
+        )
+
+    head_proc = subprocess.run(
+        ["git", "--literal-pathspecs", "-C", str(root_resolved), "rev-parse", "--verify", "HEAD^{commit}"],
+        capture_output=True,
+        text=True,
+    )
+    has_head = head_proc.returncode == 0
+    head_sha = head_proc.stdout.strip().lower() if has_head else None
+
+    for spec_path in spec_files:
+        spec_fm = fms[spec_path]
+        s_rev = spec_fm.get("source_revision", "").strip()
+        has_csha = bool(spec_fm.get("contract_sha256", "").strip())
+        strict_rev = s_rev == "self" or has_csha or bool(has_head and HEX40_RE.fullmatch(s_rev))
+        warnings.extend(
+            _verify_source_revision_and_baseline(
+                root_resolved,
+                spec_path,
+                raw_texts[spec_path],
+                spec_fm,
+                strict=strict_rev,
+                status_label="approved",
+            )
+        )
 
     tasks = (
         parse_execution_tasks(
@@ -2818,19 +3067,38 @@ def validate_owned_paths_diff(
         ]
         exempt_enabled = not strict_owned_paths
 
-    head_proc = subprocess.run(
-        ["git", "--literal-pathspecs", "-C", str(root_resolved), "rev-parse", "--verify", "HEAD^{commit}"],
-        capture_output=True,
-        text=True,
-    )
-    has_head = head_proc.returncode == 0
-    head_sha = head_proc.stdout.strip().lower() if has_head else None
     raw_dirty_or_staged = _collect_working_and_staged_paths(root_resolved, has_head)
     dirty_or_staged_set = {
         _validate_changed_rel_path(root_resolved, raw_str)
         for raw_str in raw_dirty_or_staged
         if not _is_template_backup_rel_path(raw_str)
     }
+
+    scope_label = f"{rel_feature} task {task_id.strip()}" if task_id else rel_feature
+    pack_src_rev_mode = fms[tasks_file].get("source_revision", "").strip().lower()
+    prior_entries_by_spec: dict[Path, list[tuple[str, str, dict[str, str]]]] = {}
+    if pack_src_rev_mode == "self" and has_head:
+        for s in spec_files:
+            prior_entries_by_spec[s] = _find_all_approved_entries(
+                root_resolved, s.relative_to(root_resolved).as_posix()
+            )
+    has_any_prior_self_history = any(bool(v) for v in prior_entries_by_spec.values())
+
+    if pack_src_rev_mode == "self" and has_any_prior_self_history:
+        for s in spec_files:
+            s_rel = PurePosixPath(s.relative_to(root_resolved).as_posix())
+            if s_rel not in dirty_or_staged_set:
+                continue
+            s_entries = prior_entries_by_spec.get(s, [])
+            curr_csha = fms[s].get("contract_sha256", "").strip().lower()
+            if not s_entries or curr_csha != _hist_contract_sha_for_entry(
+                s.name, s_rel.as_posix(), s_entries[-1][1], s_entries[-1][2]
+            ):
+                raise ValueError(
+                    f"owned-paths violation for {scope_label}: uncommitted spec amendment on '{s_rel.as_posix()}' "
+                    "(if you just ran stamp-spec.py --amend, commit the approved spec pack before running --check-owned-paths)"
+                )
+
     changed_set: set[PurePosixPath] = set(dirty_or_staged_set)
 
     if not (task_id is not None and base_rev is None):
@@ -2839,14 +3107,27 @@ def validate_owned_paths_diff(
             "cannot determine diff base because repository HEAD is unborn (create an initial commit or pass --task)",
         )
         assert head_sha is not None
-        effective_base = _resolve_owned_paths_diff_base(
-            root_resolved, head_sha, base_rev, tasks_file, fms, rel_feature, warnings
+        effective_base, is_empty_tree_base = _resolve_owned_paths_diff_base(
+            root_resolved,
+            head_sha,
+            base_rev,
+            tasks_file,
+            fms,
+            rel_feature,
+            warnings,
+            prior_entries=prior_entries_by_spec.get(tasks_file),
+        )
+        diff_range_args = (
+            [effective_base, "HEAD"] if is_empty_tree_base else [f"{effective_base}...HEAD"]
+        )
+        diff_range_label = (
+            f"{effective_base}..HEAD" if is_empty_tree_base else f"{effective_base}...HEAD"
         )
         committed_raw = _run_git_raw_z_diff(
             root_resolved,
-            [f"{effective_base}...HEAD"],
-            f"commit diff {effective_base}...HEAD",
-            f"git diff {effective_base}...HEAD failed (shallow clone or missing merge-base; pass --base <rev>)",
+            diff_range_args,
+            f"commit diff {diff_range_label}",
+            f"git diff {diff_range_label} failed (shallow clone or missing merge-base; pass --base <rev>)",
         )
         changed_set.update(
             _validate_changed_rel_path(root_resolved, raw_str)
@@ -2855,6 +3136,22 @@ def validate_owned_paths_diff(
         )
 
     changed_paths = sorted(changed_set, key=lambda p: p.as_posix())
+
+    zero_draft_task_exempt_specs: set[PurePosixPath] = set()
+    if (
+        task_id is not None
+        and not strict_owned_paths
+        and pack_src_rev_mode == "self"
+        and not has_any_prior_self_history
+    ):
+        for s in spec_files:
+            s_rel_posix = s.relative_to(root_resolved).as_posix()
+            git_spec_ctx = _resolve_git_spec_path(root_resolved, s_rel_posix)
+            in_head = False
+            if has_head and git_spec_ctx is not None:
+                in_head = _git_has_head_blob(git_spec_ctx[0], git_spec_ctx[1])
+            if not in_head:
+                zero_draft_task_exempt_specs.add(PurePosixPath(s_rel_posix))
 
     exempt_exact = {
         PurePosixPath("CHANGELOG.md"),
@@ -2872,6 +3169,29 @@ def validate_owned_paths_diff(
         if not is_mini
         else set()
     )
+
+    def _self_pr_spec_exempt(spec_rel: PurePosixPath) -> bool:
+        spec_abs = root_resolved / spec_rel.as_posix()
+        curr_csha = fms.get(spec_abs, {}).get("contract_sha256", "").strip().lower()
+        if not curr_csha or not HEX64_RE.fullmatch(curr_csha):
+            return False
+        if not has_any_prior_self_history:
+            return True
+        s_entries = prior_entries_by_spec.get(spec_abs, [])
+        if not s_entries:
+            return False
+        latest_sha, latest_raw, latest_fm = s_entries[-1]
+        latest_csha = _hist_contract_sha_for_entry(
+            spec_abs.name, spec_rel.as_posix(), latest_raw, latest_fm
+        )
+        if curr_csha != latest_csha:
+            return False
+        anc_proc = subprocess.run(
+            ["git", "-C", str(git_top), "merge-base", "--is-ancestor", latest_sha, "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        return anc_proc.returncode == 0
 
     def _is_unchanged_since_approval(spec_rel: PurePosixPath) -> bool:
         spec_abs = root_resolved / spec_rel.as_posix()
@@ -2923,21 +3243,21 @@ def validate_owned_paths_diff(
 
     violations: list[str] = []
     for p in changed_paths:
+        if p in zero_draft_task_exempt_specs:
+            continue
         if exempt_enabled and (p in exempt_exact or p == exempt_prefix or p.is_relative_to(exempt_prefix)):
             continue
-        if (
-            exempt_enabled
-            and p in pr_spec_candidates
-            and p not in dirty_or_staged_set
-            and _is_unchanged_since_approval(p)
-        ):
-            continue
+        if exempt_enabled and p in pr_spec_candidates:
+            if pack_src_rev_mode == "self":
+                if _self_pr_spec_exempt(p):
+                    continue
+            elif p not in dirty_or_staged_set and _is_unchanged_since_approval(p):
+                continue
         if any(p == owned or p.is_relative_to(owned) for owned in allowed_paths):
             continue
         violations.append(p.as_posix())
 
     if violations:
-        scope_label = f"{rel_feature} task {task_id.strip()}" if task_id else rel_feature
         hint = ""
         if exempt_enabled and any(PurePosixPath(v) in pr_spec_candidates for v in violations):
             hint = (

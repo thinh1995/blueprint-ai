@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Portable validation installed with a downstream project."""
 
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
@@ -13,14 +15,59 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from docs_validation import (  # noqa: E402
-    require,
-    validate_clarify_gate,
-    validate_feature_specs,
-    validate_links,
-    validate_mermaid,
-    validate_owned_paths_diff,
+try:
+    import _sdd_core  # noqa: E402
+except ImportError as exc:
+    print(
+        f"FAIL: validate-docs.py requires tools/_sdd_core.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if user-owned): {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+if getattr(_sdd_core, "SDD_CORE_API_VERSION", 0) < 1 or not hasattr(_sdd_core, "require"):
+    print(
+        f"FAIL: validate-docs.py requires an up-to-date tools/_sdd_core.py (SDD_CORE_API_VERSION >= 1) in {SCRIPT_DIR} "
+        "(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if tools/_sdd_core.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+REQUIRED_DV_SYMBOLS = (
+    "compute_contract_sha256",
+    "require",
+    "validate_clarify_gate",
+    "validate_feature_specs",
+    "validate_links",
+    "validate_mermaid",
+    "validate_owned_paths_diff",
 )
+
+try:
+    import docs_validation as _dv  # noqa: E402
+except ImportError as exc:
+    print(
+        f"FAIL: validate-docs.py requires docs_validation.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned): {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+missing_dv = [sym for sym in REQUIRED_DV_SYMBOLS if not hasattr(_dv, sym)]
+if missing_dv:
+    print(
+        f"FAIL: validate-docs.py requires an up-to-date docs_validation.py in {SCRIPT_DIR} "
+        f"(missing: {', '.join(missing_dv)}; run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+require = _dv.require
+validate_clarify_gate = _dv.validate_clarify_gate
+validate_feature_specs = _dv.validate_feature_specs
+validate_links = _dv.validate_links
+validate_mermaid = _dv.validate_mermaid
+validate_owned_paths_diff = _dv.validate_owned_paths_diff
 
 DEFAULT_ROOT = SCRIPT_DIR.parent
 
@@ -38,12 +85,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--require-tasks",
         action="store_true",
-        help="Require 4. Tasks.md (or 1. Mini Spec.md) and 40-hex source_revision on every approved feature folder.",
+        help="Require 4. Tasks.md (or 1. Mini Spec.md) and 'self'+contract_sha256 (or 40-hex SHA) source_revision on every approved feature folder.",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Enforce strict 40-character lowercase Git SHA source_revision on approved specs.",
+        help="Enforce strict source_revision ('self' + 64-hex contract_sha256, or 40-character lowercase Git SHA) on approved specs.",
     )
     parser.add_argument(
         "--check-owned-paths",
@@ -70,7 +117,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if not args.check_owned_paths and (
         args.feature is not None
@@ -115,11 +162,12 @@ def main(argv: list[str] | None = None) -> None:
     for warning in dict.fromkeys(clarify_warnings + spec_warnings + owned_warnings):
         print(f"WARN: {warning}", file=sys.stderr)
     print("PASS: downstream documentation links and Mermaid structure")
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except ValueError as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         sys.exit(1)

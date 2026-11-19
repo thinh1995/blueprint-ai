@@ -1,6 +1,6 @@
 {
   "template": "ai-agent-obsidian-project-template",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "skills_enabled": true,
   "managed_profiles": ["core"],
   "managed_paths": [
@@ -38,6 +38,7 @@
     ".qwen/skills/sdd-fix/SKILL.md",
     ".qwen/skills/sdd-review/SKILL.md",
     "template-manifest.json",
+    "tools/_sdd_core.py",
     "tools/validate-task-evidence.py",
     "tools/validate-docs.py",
     "tools/docs_validation.py",
@@ -85,6 +86,7 @@
       ".qwen/skills/sdd-fix/SKILL.md",
       ".qwen/skills/sdd-review/SKILL.md",
       "template-manifest.json",
+      "tools/_sdd_core.py",
       "tools/validate-task-evidence.py",
       "tools/validate-docs.py",
       "tools/docs_validation.py",

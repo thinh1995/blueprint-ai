@@ -8,6 +8,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import hashlib
+import importlib.util
 import inspect
 import json
 import os
@@ -17,6 +18,7 @@ import stat
 import subprocess
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
+from types import ModuleType
 from urllib.parse import unquote
 
 TEMPLATE_ID = "ai-agent-obsidian-project-template"
@@ -38,6 +40,7 @@ SDD_SKILL_SLUGS = (
 )
 SKILL_TREES = (".claude", ".agents", ".qwen")
 MANAGED_SDD_TOOLS = (
+    "tools/_sdd_core.py",
     "tools/validate-task-evidence.py",
     "tools/new-feature.py",
     "tools/export-tasks.py",
@@ -154,6 +157,7 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "ee5da7fc487cb3930828775505c0f865d9a69493298f3f693bdd6e99c9c3063c",
         "6fa367b68a771f691cb6f0419551a11ac6dd2d683f797662f9122615abbe9c24",
         "81701c543d1971dda434cf7cc3daca4e664b6f782c7bc9d1ef94aa57c29107a2",
+        "077518580a886325c5d456c9439e42e75fc6363425601de87673c2855b41e4c4",
     },
     "CLAUDE.md": {
         "dd1f9d23798a7fa56c485f79a88673b92afe19e8b8550a8119cd79499028641a",
@@ -180,6 +184,7 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "3595f0930d4864be24271edfb0c3a084898726d22d76950751d034940abeb034",
         "f3331df869fb3354607a979b0d71c0fe6982aed41819ebf8d57166f036a52f72",
         "b3044c66638d098957ff10ae747e8108b292ac8c54762875f4996bc56f3615f7",
+        "63162ec9bf2b39abec4c0bf6ee9dde366fb102d0dd56393907039da01221a1d9",
     },
     "skills/sdd-clarify/SKILL.md": {
         "e4ac7aa24dbfa92ba40214cac370879aff2f5404784cca71367011110878a2ab",
@@ -214,14 +219,17 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
         "5e323c915df62cab8c67b2b56a13bef25742ec9720cc614fca93fe5b3d076c45",
         "c123999194e7311997f7cb5e09347ffde7241db2d3439e4ac997afe7bfe37c5a",
         "cef0b3dc107863f7bdc154a8441a3fa3ef31491cfae08551524b8d0000005c90",
+        "a711cc93909944400a1035dd4db7e0064f8a137bc56aa4555f7e92a663ebd102",
     },
     "skills/sdd-review/SKILL.md": {
         "be3ef606cf3f6643265ee43755353e4189b1547b217a387e58e6ef4572d10b2c",
     },
+    "tools/_sdd_core.py": set(),
     "tools/docs_validation.py": {
         "077f28407a8f575723542d4f14ced73b056276a431ab49fe740c394699905748",
         "90895ef9fdb6d99c461d86355b71edcce9ea96fb4c33594816a552c3833f1dc2",
         "3db0906005a9b5ee713d95bc6efea03e791d4654f611f53ff084426db0e91882",
+        "4b8c2dec5750cdf0de4e702989f4f8439f66ec397049a121bd9f15748efd224b",
     },
     "tools/export-tasks.py": {
         "0069b1fef04370ef024ff23dc77cb2a9641714ab414590499c92ced58c54cce3",
@@ -233,6 +241,7 @@ PRIOR_TEMPLATE_SHA256S: dict[str, set[str]] = {
     },
     "tools/stamp-spec.py": {
         "32edf40da493920f83980f6697683865d6fa375019c7eab7614165fc1e7d7129",
+        "1525c21cda8a6948c6cd43031f3a9d8928e828132e825b595a24201bbe0248e7",
     },
     "tools/record-evidence.py": {
         "4ead42041b83c4f5e9f4906c2ae86d00e27b8403b8e9e9dada668f592ce2ebb8",
@@ -275,6 +284,8 @@ def validate_rel_path(value: object, context: str = "path") -> str:
         raise ValueError(f"{context} contains an empty or non-string path")
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
         raise ValueError(f"{context} contains a control character")
+    if value != value.strip() or "|" in value or "\\" in value:
+        raise ValueError(f"{context} contains an unsafe path: {value}")
     pure = PurePosixPath(value)
     if pure.is_absolute() or value.startswith("/") or any(part in {"", ".", ".."} for part in value.split("/")):
         raise ValueError(f"{context} contains an unsafe path: {value}")
@@ -405,14 +416,96 @@ def is_canonical_or_recorded_recovery(
 
 
 # ---------------------------------------------------------------------------
-# Subcommand: validate-source-manifest & load-profile-paths & source-version
+# Isolated trusted tool loader & source manifest validation
 # ---------------------------------------------------------------------------
 
+_TRUSTED_MODULE_CACHE: dict[tuple[str, str], ModuleType] = {}
 
-def cmd_validate_source_manifest(args: list[str]) -> int:
-    root = Path(args[0]).resolve()
+
+class _TrustedToolError(ValueError):
+    def __init__(self, tool_rel: str) -> None:
+        self.tool_rel = tool_rel
+        super().__init__(
+            f"missing or empty trusted source {tool_rel} in template checkout — restore {tool_rel} from Git."
+        )
+
+
+def _load_module_isolated(mod_name: str, file_path: Path, digest: str) -> ModuleType:
+    resolved_str = str(file_path.resolve())
+    key = (resolved_str, digest)
+    cached = _TRUSTED_MODULE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    tag = hashlib.sha256(f"{resolved_str}:{digest}".encode("utf-8")).hexdigest()[:12]
+    spec_name = f"_trusted_{mod_name}_{tag}"
+    spec = importlib.util.spec_from_file_location(spec_name, resolved_str)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"cannot create module spec for {resolved_str}")
+    module = importlib.util.module_from_spec(spec)
+    prev_spec_mod = sys.modules.get(spec_name)
+    saved_sys_path = list(sys.path)
+    sys.modules[spec_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path[:] = saved_sys_path
+        if prev_spec_mod is None:
+            sys.modules.pop(spec_name, None)
+        else:
+            sys.modules[spec_name] = prev_spec_mod
+    _TRUSTED_MODULE_CACHE[key] = module
+    return module
+
+
+def _load_trusted_tools(
+    src_dir: Path,
+    *,
+    need_docs_validation: bool = False,
+) -> tuple[ModuleType, ModuleType | None]:
+    if src_dir.is_symlink():
+        raise _TrustedToolError("tools/_sdd_core.py")
+    src_resolved = src_dir.resolve()
+    core_rel = "tools/_sdd_core.py"
+    try:
+        core_bytes = read_regular_bytes_nofollow(src_resolved, core_rel)
+    except ValueError as exc:
+        raise _TrustedToolError(core_rel) from exc
+    if len(core_bytes) == 0:
+        raise _TrustedToolError(core_rel)
+    core_sha = hashlib.sha256(core_bytes).hexdigest()
+    core_mod = _load_module_isolated("_sdd_core", src_resolved / core_rel, core_sha)
+    if not need_docs_validation:
+        return core_mod, None
+
+    dv_rel = "tools/docs_validation.py"
+    try:
+        dv_bytes = read_regular_bytes_nofollow(src_resolved, dv_rel)
+    except ValueError as exc:
+        raise _TrustedToolError(dv_rel) from exc
+    if len(dv_bytes) == 0:
+        raise _TrustedToolError(dv_rel)
+    dv_sha = hashlib.sha256(dv_bytes).hexdigest()
+    prev_core = sys.modules.get("_sdd_core")
+    saved_sys_path = list(sys.path)
+    sys.modules["_sdd_core"] = core_mod
+    try:
+        dv_mod = _load_module_isolated(
+            "docs_validation",
+            src_resolved / dv_rel,
+            f"{core_sha}:{dv_sha}",
+        )
+    finally:
+        sys.path[:] = saved_sys_path
+        if prev_core is None:
+            sys.modules.pop("_sdd_core", None)
+        else:
+            sys.modules["_sdd_core"] = prev_core
+    return core_mod, dv_mod
+
+
+def _load_and_validate_source_manifest(root: Path) -> dict[str, object]:
     manifest = json.loads(read_regular_text_nofollow(root, "template-manifest.json"))
-    if manifest.get("template") != TEMPLATE_ID:
+    if not isinstance(manifest, dict) or manifest.get("template") != TEMPLATE_ID:
         raise ValueError(f"manifest is not owned by {TEMPLATE_ID}")
     version = manifest.get("version")
     if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
@@ -485,6 +578,26 @@ def cmd_validate_source_manifest(args: list[str]) -> int:
             continue
         if not any(covers(entry, rel_posix) for entry in [*core, *advanced]):
             raise ValueError(f"template documentation is not declared by a profile: {rel_posix}")
+    return manifest
+
+
+def cmd_validate_source_manifest(args: list[str]) -> int:
+    root = Path(args[0]).resolve()
+    _load_and_validate_source_manifest(root)
+    return 0
+
+
+def cmd_load_manifest_state(args: list[str]) -> int:
+    root = Path(args[0]).resolve()
+    manifest = _load_and_validate_source_manifest(root)
+    profiles = manifest["profiles"]  # type: ignore[index]
+    out_lines = [
+        f"{prof}\t{entry}"
+        for prof in REQUIRED_PROFILES
+        for entry in profiles[prof]  # type: ignore[index]
+    ]
+    if out_lines:
+        print("\n".join(out_lines))
     return 0
 
 
@@ -626,8 +739,8 @@ def cmd_doctor_source(args: list[str]) -> int:
             except ValueError:
                 skill_err = f"missing or symlinked {rel}"
                 break
-            if len(raw_bytes) > 4096:
-                skill_err = f"{rel} exceeds 4096 bytes ({len(raw_bytes)} B)"
+            if len(raw_bytes) > 5120:
+                skill_err = f"{rel} exceeds 5120 bytes ({len(raw_bytes)} B)"
                 break
             err = verify_skill_markdown(raw_bytes.decode("utf-8", errors="replace"), expected_slug=slug)
             if err:
@@ -927,6 +1040,12 @@ def cmd_doctor_manifest(args: list[str]) -> int:
                     tools_verified = False
         else:
             print(f"WARN tools: {tool_rel} is user-owned or unmanaged; preserving without managed integrity check.")
+    if "tools/docs_validation.py" not in managed_set and (
+        "tools/stamp-spec.py" in managed_set or "tools/record-evidence.py" in managed_set
+    ):
+        print(
+            "WARN tools: tools/docs_validation.py is user-owned while SDD tools are template-managed; run setup.sh --update --force (or sync docs_validation.py manually) if stamp-spec.py or record-evidence.py --feature reports missing validator symbols."
+        )
     if tools_ok and tools_verified:
         print("PASS tools: managed downstream tools verified")
 
@@ -1004,105 +1123,8 @@ def cmd_doctor_manifest(args: list[str]) -> int:
     return status
 
 
-def _strip_markdown_code(text: str) -> str:
-    lines = text.splitlines(keepends=True)
-    out: list[str] = []
-    in_fence = False
-    fence_char = ""
-    fence_len = 0
-    for line in lines:
-        m = re.match(r"^[ \t]*(`{3,}|~{3,})([^\n]*)$", line)
-        if not in_fence:
-            if m:
-                marker, info = m.group(1), m.group(2)
-                if not (marker[0] == "`" and "`" in info):
-                    in_fence = True
-                    fence_char = marker[0]
-                    fence_len = len(marker)
-                    out.append("\n")
-                    continue
-            out.append(line)
-        else:
-            close_m = re.match(
-                r"^[ \t]*(" + re.escape(fence_char) + r"{" + str(fence_len) + r",})[ \t]*\r?\n?$",
-                line,
-            )
-            if close_m:
-                in_fence = False
-            out.append("\n")
-    joined = "".join(out)
-    return re.sub(r"(`+)([^\n]*?)\1", "", joined)
-
-
 def _should_skip_doctor_link_part(part: str) -> bool:
     return part in DOCTOR_LINK_SKIP_DIRS or part.startswith(".ai-template-backup.")
-
-
-def _iter_markdown_link_targets(cleaned: str) -> list[str]:
-    targets: list[str] = []
-    idx = 0
-    n = len(cleaned)
-    while idx < n:
-        lb = cleaned.find("[", idx)
-        if lb == -1:
-            break
-        bs = 0
-        k = lb - 1
-        while k >= 0 and cleaned[k] == "\\":
-            bs += 1
-            k -= 1
-        if bs % 2 == 1:
-            idx = lb + 1
-            continue
-        rb = lb + 1
-        while rb < n and cleaned[rb] not in "\r\n":
-            if cleaned[rb] == "\\" and rb + 1 < n and cleaned[rb + 1] not in "\r\n":
-                rb += 2
-                continue
-            if cleaned[rb] in "[]":
-                break
-            rb += 1
-        if rb >= n or cleaned[rb] != "]" or rb + 1 >= n or cleaned[rb + 1] != "(":
-            idx = lb + 1
-            continue
-        p = rb + 2
-        while p < n and cleaned[p] in " \t":
-            p += 1
-        if p < n and cleaned[p] == "<":
-            gt = p + 1
-            while gt < n and cleaned[gt] not in ">\r\n":
-                if cleaned[gt] == "\\" and gt + 1 < n and cleaned[gt + 1] not in "\r\n":
-                    gt += 2
-                    continue
-                gt += 1
-            if gt < n and cleaned[gt] == ">":
-                tail_m = re.match(r"""^[ \t]*(?:(?:"[^"\r\n]*"|'[^'\r\n]*')[ \t]*)?\)""", cleaned[gt + 1 :])
-                if tail_m is not None:
-                    targets.append(cleaned[p + 1 : gt].strip())
-                    idx = gt + 1 + tail_m.end()
-                    continue
-        else:
-            depth = 1
-            q = p
-            while q < n and depth > 0 and cleaned[q] not in "\r\n":
-                if cleaned[q] == "\\" and q + 1 < n and cleaned[q + 1] not in "\r\n":
-                    q += 2
-                    continue
-                if cleaned[q] == "(":
-                    depth += 1
-                elif cleaned[q] == ")":
-                    depth -= 1
-                    if depth == 0:
-                        break
-                q += 1
-            if depth == 0:
-                inside = cleaned[p:q].strip()
-                no_title = re.sub(r"""[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*')$""", "", inside).strip()
-                targets.append(no_title)
-                idx = q + 1
-                continue
-        idx = rb + 1
-    return targets
 
 
 def _walk_md_under(base_root: Path, sub_rel: str) -> list[str]:
@@ -1210,6 +1232,15 @@ def _resolve_doctor_link_target(root_resolved: Path, start_dir: Path, rel_target
 def cmd_doctor_links(args: list[str]) -> int:
     dest_dir = Path(args[0]).resolve()
     src_dir = Path(args[1]).resolve() if len(args) > 1 else dest_dir
+    try:
+        core_mod, _dv_mod = _load_trusted_tools(src_dir, need_docs_validation=False)
+    except _TrustedToolError as exc:
+        print(f"FAIL tools: {exc}", file=sys.stderr)
+        return 1
+
+    strip_code = core_mod.strip_code
+    iter_markdown_link_targets = core_mod.iter_markdown_link_targets
+
     missing: list[str] = []
     for rel_note in _collect_doctor_link_files(dest_dir, src_dir):
         note = dest_dir / rel_note
@@ -1217,8 +1248,8 @@ def cmd_doctor_links(args: list[str]) -> int:
             raw_text = read_regular_text_nofollow(dest_dir, rel_note, errors="replace")
         except ValueError:
             continue
-        cleaned = _strip_markdown_code(raw_text)
-        for target in _iter_markdown_link_targets(cleaned):
+        cleaned = strip_code(raw_text)
+        for target in iter_markdown_link_targets(cleaned):
             if not target or target.startswith("#"):
                 continue
             raw_target = target.split("#", 1)[0].strip()
@@ -1254,9 +1285,12 @@ def cmd_doctor_spec_readiness(args: list[str]) -> int:
     src_dir = Path(args[1]).resolve()
     strict = "--strict" in args[2:]
 
-    src_validator_bytes = read_regular_bytes_nofollow(src_dir, "tools/docs_validation.py")
-    if len(src_validator_bytes) == 0:
-        raise ValueError("empty trusted source tools/docs_validation.py")
+    try:
+        _core_mod, dv_mod = _load_trusted_tools(src_dir, need_docs_validation=True)
+    except _TrustedToolError as exc:
+        print(f"FAIL tools: {exc}", file=sys.stderr)
+        return 1
+    assert dv_mod is not None
 
     if has_symlink_component(dest_dir, "docs/current"):
         raise ValueError("refusing symlinked docs/current directory")
@@ -1267,14 +1301,10 @@ def cmd_doctor_spec_readiness(args: list[str]) -> int:
     if not current_root.is_dir():
         raise ValueError("docs/current is not a directory")
 
-    validator_dir = src_dir / "tools"
-    sys.path.insert(0, str(validator_dir))
-    from docs_validation import (  # type: ignore[import-not-found]
-        validate_clarify_gate,
-        validate_feature_specs,
-        validate_links,
-        validate_mermaid,
-    )
+    validate_links = dv_mod.validate_links
+    validate_mermaid = dv_mod.validate_mermaid
+    validate_clarify_gate = dv_mod.validate_clarify_gate
+    validate_feature_specs = dv_mod.validate_feature_specs
 
     docs_root = dest_dir / "docs"
     files = sorted(
@@ -1796,6 +1826,7 @@ def cmd_verify_sha256(args: list[str]) -> int:
 
 COMMANDS = {
     "validate-source-manifest": cmd_validate_source_manifest,
+    "load-manifest-state": cmd_load_manifest_state,
     "load-profile-paths": cmd_load_profile_paths,
     "source-version": cmd_source_version,
     "doctor-source": cmd_doctor_source,
@@ -1812,17 +1843,18 @@ COMMANDS = {
 }
 
 
-def main(argv: list[str]) -> int:
-    if not argv or argv[0] not in COMMANDS:
+def main(argv: list[str] | None = None) -> int:
+    effective_argv = sys.argv[1:] if argv is None else argv
+    if not effective_argv or effective_argv[0] not in COMMANDS:
         print(f"Usage: installer_lib.py <{'|'.join(COMMANDS)}> ...", file=sys.stderr)
         return 2
-    cmd = COMMANDS[argv[0]]
+    cmd = COMMANDS[effective_argv[0]]
     try:
-        return cmd(argv[1:])
+        return cmd(effective_argv[1:])
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

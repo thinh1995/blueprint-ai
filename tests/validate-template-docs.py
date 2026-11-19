@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Structural and semantic validation for this template repository."""
 
+from __future__ import annotations
+
 import json
 import re
 import sys
@@ -26,6 +28,7 @@ DOCS = ROOT / "docs"
 CURRENT = DOCS / "current"
 TEMPLATES = DOCS / "templates"
 SAMPLE = TEMPLATES / "examples/ai-support-agent"
+MAX_COMBINED_CONTEXT_BYTES = 19000
 
 
 def require(condition: bool, message: str) -> None:
@@ -33,8 +36,12 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def markdown_files() -> list[Path]:
-    return [path for path in DOCS.rglob("*.md") if "internal" not in path.relative_to(DOCS).parts]
+def markdown_files(docs_root: Path = DOCS) -> list[Path]:
+    return [
+        path
+        for path in docs_root.rglob("*.md")
+        if not path.is_symlink() and "internal" not in path.relative_to(docs_root).parts
+    ]
 
 
 def require_text(path: Path, text: str) -> str:
@@ -65,6 +72,29 @@ def main() -> None:
     require_text(ROOT / "QWEN.md", "AGENTS.md")
     require_text(ROOT / "adapters/cursor-agents.mdc", "alwaysApply: true")
     require_text(ROOT / "adapters/copilot-instructions.md", "AGENTS.md")
+
+    for adapter_rel in (
+        "CLAUDE.md",
+        "GEMINI.md",
+        "QWEN.md",
+        "adapters/copilot-instructions.md",
+        "adapters/cursor-agents.mdc",
+    ):
+        adapter_text = read(ROOT / adapter_rel)
+        require(
+            "3. AI Agent Workflow.md" not in adapter_text,
+            f"{adapter_rel}: startup context diet forbids '3. AI Agent Workflow.md'",
+        )
+
+    agents_bytes = len((ROOT / "AGENTS.md").read_bytes())
+    skill_sizes = [len(p.read_bytes()) for p in sorted((ROOT / "skills").glob("sdd-*/SKILL.md")) if not p.is_symlink()]
+    require(bool(skill_sizes), "skills: expected canonical sdd-*/SKILL.md files")
+    peak_context_bytes = agents_bytes + max(skill_sizes)
+    require(
+        peak_context_bytes <= MAX_COMBINED_CONTEXT_BYTES,
+        f"startup context budget exceeded: AGENTS.md ({agents_bytes} B) + max SKILL.md ({max(skill_sizes)} B) "
+        f"= {peak_context_bytes} B > {MAX_COMBINED_CONTEXT_BYTES} B",
+    )
 
     runtime_instructions = require_text(
         CURRENT / "00 - Onboarding/5. Model Runtime Instructions.md",
@@ -100,10 +130,13 @@ def main() -> None:
     require_text(TEMPLATES / "4. Runtime Delegation Evidence Template.md", "# Runtime Delegation Evidence")
     require_text(TEMPLATES / "mini-spec-template/1. Mini Spec.md", "## Acceptance criteria")
     require_text(TEMPLATES / "mini-spec-template/1. Mini Spec.md", "## Execution tasks")
+    require_text(TEMPLATES / "mini-spec-template/1. Mini Spec.md", "contract_sha256")
+    require_text(TEMPLATES / "feature-spec-template/README.md", "contract_sha256")
     require_text(CURRENT / "00 - Onboarding/4. Whole-Project Documentation Update Prompt.md", "BẮT BUỘC tạo")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/feature-spec-template/")
     require_text(CURRENT / "05 - Product Features/README.md", "docs/templates/mini-spec-template/")
     require_text(CURRENT / "05 - Product Features/README.md", "## Anti-fragmentation and supersession lifecycle")
+    require_text(CURRENT / "05 - Product Features/README.md", "contract_sha256")
     require_text(CURRENT / "02 - Architecture/Architecture.md", "## Brownfield security and tech-debt triage")
     require_text(
         CURRENT / "06 - Infrastructure & Deployment/Infrastructure Spec.md",
@@ -111,16 +144,26 @@ def main() -> None:
     )
     require_text(ROOT / "AGENTS.md", "--supersede")
     require_text(ROOT / "AGENTS.md", "superseded_by")
+    require_text(ROOT / "AGENTS.md", "contract_sha256")
     require_text(ROOT / "AGENTS.md", "Markdown H1/H2/H3 headings")
     require("Markdown ## headings" not in read(ROOT / "AGENTS.md"), "AGENTS.md: stale 'Markdown ## headings' remains")
+
+    task_evidence_note = require_text(CURRENT / "00 - Onboarding/2. Task Evidence.md", "source_revision: self")
+    require(
+        "vẫn cần `tools/stamp-spec.py --amend`" not in task_evidence_note,
+        "00 - Onboarding/2. Task Evidence.md: stale post-Squash-Merge 'vẫn cần `tools/stamp-spec.py --amend`' prose remains",
+    )
+
     setup_guide = require_text(CURRENT / "00 - Onboarding/1. Setup Guide.md", "--without-skills")
     for setup_token in (
         "9 lệnh tắt Agent Skills",
         "/sdd-review",
+        "tools/_sdd_core.py",
         "tools/stamp-spec.py",
         "tools/record-evidence.py",
         "--check-owned-paths",
         "source_revision: self",
+        "contract_sha256",
     ):
         require(setup_token in setup_guide, f"00 - Onboarding/1. Setup Guide.md: missing {setup_token!r}")
     require(
@@ -129,6 +172,7 @@ def main() -> None:
     )
 
     vault_moc = require_text(CURRENT / "Vault Index MOC.md", "/sdd-review")
+    require("contract_sha256" in vault_moc, "Vault Index MOC.md: missing 'contract_sha256'")
     require("8 giai đoạn" in vault_moc, "Vault Index MOC.md: missing '8 giai đoạn'")
     require("7 giai đoạn" not in vault_moc, "Vault Index MOC.md: stale '7 giai đoạn' remains")
 
@@ -142,13 +186,15 @@ def main() -> None:
         "--without-skills",
         "--set-models",
         "security-hardening",
+        "tools/_sdd_core.py",
         "stamp-spec.py",
         "record-evidence.py",
         "--check-owned-paths",
+        "contract_sha256",
     ):
         require_text(ROOT / "README.md", readme_token)
 
-    sdd_prompts = read(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md")
+    sdd_prompts = require_text(CURRENT / "00 - Onboarding/6. Spec-Driven Feature Prompts.md", "contract_sha256")
     for slash_cmd in (
         "/sdd-specify",
         "/sdd-clarify",
@@ -168,6 +214,8 @@ def main() -> None:
     require_text(TEMPLATES / "feature-spec-template/4. Tasks.md", "AGENTS.md Constitution check")
 
     for path in [*CURRENT.rglob("*.md"), *TEMPLATES.rglob("*.md")]:
+        if path.is_symlink():
+            continue
         content = read(path)
         require(
             "*Khởi tạo:" not in content and "*Changelog:" not in content,

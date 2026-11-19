@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Record per-task execution evidence with secret scanning, ANSI stripping, and AC hydration."""
 
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
@@ -9,55 +11,56 @@ import argparse
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import shlex
-import stat
 import subprocess
-import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-INLINE_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("PEM private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key ID", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
-    ("GitHub personal/app token", re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b")),
-    ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
-    ("API secret key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
+REQUIRED_CORE_SYMBOLS = (
+    "ALLOWED_CREDENTIAL_PLACEHOLDERS",
+    "CREDENTIALED_URI_RE",
+    "FORBIDDEN_APPROVED_PLACEHOLDERS",
+    "GitCatFileBatch",
+    "REGULAR_GIT_BLOB_MODES",
+    "SDD_CORE_API_VERSION",
+    "SECRET_PATTERNS",
+    "atomic_write_bytes",
+    "is_source_template_repository",
+    "parse_frontmatter",
+    "read_bytes_nofollow",
+    "resolve_git_toplevel",
+    "write_new_exclusive",
 )
-INLINE_CREDENTIALED_URI_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://([^/\s:@]+):([^/\s@]+)@")
-INLINE_ALLOWED_CREDENTIAL_PLACEHOLDERS = {
-    "user:pass",
-    "username:password",
-    "<user>:<pass>",
-    "<user>:<password>",
-    "<username>:<password>",
-    "placeholder:placeholder",
-    "***:***",
-    "redacted:redacted",
-}
-INLINE_FORBIDDEN_PLACEHOLDERS = {"draft", "todo", "tbd", "pending", "n/a", "none", "-"}
 
-_DV_MODULE = None
-_DV_IMPORT_ERR: str | None = None
 try:
-    import docs_validation as _dv  # noqa: E402
-
-    _DV_MODULE = _dv
+    import _sdd_core  # noqa: E402
 except ImportError as exc:
-    _DV_IMPORT_ERR = str(exc)
+    print(
+        f"FAIL: record-evidence.py requires tools/_sdd_core.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if user-owned): {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
-SECRET_PATTERNS = getattr(_DV_MODULE, "SECRET_PATTERNS", INLINE_SECRET_PATTERNS)
-CREDENTIALED_URI_RE = getattr(_DV_MODULE, "CREDENTIALED_URI_RE", INLINE_CREDENTIALED_URI_RE)
-ALLOWED_CREDENTIAL_PLACEHOLDERS = getattr(
-    _DV_MODULE, "ALLOWED_CREDENTIAL_PLACEHOLDERS", INLINE_ALLOWED_CREDENTIAL_PLACEHOLDERS
-)
-FORBIDDEN_APPROVED_PLACEHOLDERS = getattr(
-    _DV_MODULE, "FORBIDDEN_APPROVED_PLACEHOLDERS", INLINE_FORBIDDEN_PLACEHOLDERS
-)
+missing_core = [sym for sym in REQUIRED_CORE_SYMBOLS if not hasattr(_sdd_core, sym)]
+if getattr(_sdd_core, "SDD_CORE_API_VERSION", 0) < 1 or missing_core:
+    print(
+        f"FAIL: record-evidence.py requires an up-to-date tools/_sdd_core.py (SDD_CORE_API_VERSION >= 1) in {SCRIPT_DIR} "
+        "(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if tools/_sdd_core.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+SECRET_PATTERNS = _sdd_core.SECRET_PATTERNS
+CREDENTIALED_URI_RE = _sdd_core.CREDENTIALED_URI_RE
+ALLOWED_CREDENTIAL_PLACEHOLDERS = _sdd_core.ALLOWED_CREDENTIAL_PLACEHOLDERS
+FORBIDDEN_APPROVED_PLACEHOLDERS = _sdd_core.FORBIDDEN_APPROVED_PLACEHOLDERS
+REGULAR_GIT_BLOB_MODES = _sdd_core.REGULAR_GIT_BLOB_MODES
+GitCatFileBatch = _sdd_core.GitCatFileBatch
 
 DEFAULT_ROOT = SCRIPT_DIR.parent
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
@@ -68,141 +71,42 @@ ANSI_OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 ANSI_ESC_RE = re.compile(r"\x1b[@-Z\\-_]")
 DISALLOWED_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
-
-def _is_source_template_repository(root: Path) -> bool:
-    if _DV_MODULE is not None and hasattr(_DV_MODULE, "is_source_template_repository"):
-        return bool(_DV_MODULE.is_source_template_repository(root))
-    manifest_path = root / "template-manifest.json"
-    if manifest_path.is_symlink() or not manifest_path.is_file():
-        return False
-    if not (root / "lib" / "installer_lib.py").is_file() or not (root / "docs" / "internal").is_dir():
-        return False
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return (
-        isinstance(manifest, dict)
-        and manifest.get("template") == "ai-agent-obsidian-project-template"
-        and "requested_models" not in manifest
-        and "selected_models" not in manifest
-    )
+_is_source_template_repository = _sdd_core.is_source_template_repository
+_resolve_git_toplevel = _sdd_core.resolve_git_toplevel
+_fallback_parse_frontmatter = _sdd_core.parse_frontmatter
+_write_new_exclusive = _sdd_core.write_new_exclusive
+_atomic_replace_bytes = _sdd_core.atomic_write_bytes
 
 
-def _resolve_git_toplevel(root: Path) -> Path | None:
-    if _DV_MODULE is not None and hasattr(_DV_MODULE, "resolve_git_toplevel"):
-        return _DV_MODULE.resolve_git_toplevel(root)
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
-    try:
-        return Path(proc.stdout.strip()).resolve()
-    except OSError:
-        return None
+def _read_bytes_nofollow(path: Path) -> bytes:
+    raw, _mode = _sdd_core.read_bytes_nofollow(path)
+    return raw
 
 
-def _require_feature_helpers() -> object:
+def _require_feature_helpers():
     required = (
         "MINI_SPEC_FILE",
         "_extract_section_table_rows",
+        "compute_contract_sha256",
         "parse_execution_tasks",
         "parse_frontmatter",
         "read_markdown",
         "resolve_active_feature_dir",
     )
-    if _DV_MODULE is None:
+    try:
+        import docs_validation as dv_mod
+    except ImportError as exc:
         raise ValueError(
             f"record-evidence.py --feature requires docs_validation.py in {SCRIPT_DIR} "
-            f"(run 'setup.sh --update' to restore the validator bundle): {_DV_IMPORT_ERR}"
-        )
-    missing = [name for name in required if not hasattr(_DV_MODULE, name)]
+            f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned): {exc}"
+        ) from exc
+    missing = [name for name in required if not hasattr(dv_mod, name)]
     if missing:
         raise ValueError(
             f"record-evidence.py --feature requires an up-to-date docs_validation.py in {SCRIPT_DIR} "
-            f"(missing: {', '.join(missing)}; run 'setup.sh --update' to restore the validator bundle)"
+            f"(missing: {', '.join(missing)}; run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned)"
         )
-    return _DV_MODULE
-
-
-def _fallback_parse_frontmatter(text: str) -> dict[str, str]:
-    if _DV_MODULE is not None and hasattr(_DV_MODULE, "parse_frontmatter"):
-        return _DV_MODULE.parse_frontmatter(text)
-    normalized = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
-    match = re.match(r"^---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|$)", normalized, flags=re.S)
-    if not match:
-        return {}
-    data: dict[str, str] = {}
-    for line in (match.group(1) or "").split("\n"):
-        if line.startswith((" ", "\t")):
-            continue
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith("-") or ":" not in line:
-            continue
-        key, raw_val = line.split(":", 1)
-        val = raw_val.strip()
-        if not val or val.startswith("#"):
-            parsed_val = ""
-        elif val[0] in {'"', "'"}:
-            quote = val[0]
-            idx = 1
-            out: list[str] = []
-            parsed_val = None
-            while idx < len(val):
-                ch = val[idx]
-                if quote == '"' and ch == "\\" and idx + 1 < len(val):
-                    nxt = val[idx + 1]
-                    escapes = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t", "/": "/"}
-                    out.append(escapes.get(nxt, nxt))
-                    idx += 2
-                    continue
-                if quote == "'" and ch == "'" and idx + 1 < len(val) and val[idx + 1] == "'":
-                    out.append("'")
-                    idx += 2
-                    continue
-                if ch == quote:
-                    trailing = val[idx + 1 :].strip()
-                    if not trailing or trailing.startswith("#"):
-                        parsed_val = "".join(out).strip()
-                    break
-                out.append(ch)
-                idx += 1
-            if parsed_val is None:
-                parsed_val = val[1:-1].strip() if len(val) >= 2 and val[-1] == quote else val
-        else:
-            parsed_val = re.split(r"[ \t]+#", val, maxsplit=1)[0].strip()
-        if key.strip():
-            data[key.strip()] = parsed_val
-    return data
-
-
-def _read_bytes_nofollow(path: Path) -> bytes:
-    if path.is_symlink():
-        raise ValueError(f"{path}: symlink refused")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise ValueError(f"{path}: unable to open regular file safely ({exc})") from exc
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise ValueError(f"{path}: expected regular file")
-        chunks: list[bytes] = []
-        while True:
-            buf = os.read(fd, 65536)
-            if not buf:
-                break
-            chunks.append(buf)
-        return b"".join(chunks)
-    finally:
-        os.close(fd)
+    return dv_mod
 
 
 def _walk_inside_root_no_symlinks(root: Path, raw_rel: str, label: str) -> Path:
@@ -316,58 +220,6 @@ def _assert_not_gitignored(git_top: Path, root: Path, target_path: Path, label: 
     if proc.returncode != 1:
         err = proc.stderr.strip() or f"exit {proc.returncode}"
         raise ValueError(f"{label}: git check-ignore failed for '{git_rel}': {err}")
-
-
-def _write_all_fd(fd: int, data: bytes) -> None:
-    view = memoryview(data)
-    total = 0
-    while total < len(view):
-        written = os.write(fd, view[total:])
-        if written <= 0:
-            raise OSError("short write")
-        total += written
-
-
-def _write_new_exclusive(path: Path, data: bytes) -> None:
-    if path.exists() or path.is_symlink():
-        raise ValueError(f"refusing to overwrite existing path: {path}")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags, 0o644)
-    try:
-        _write_all_fd(fd, data)
-    except BaseException:
-        os.close(fd)
-        try:
-            path.unlink()
-        except OSError:
-            pass
-        raise
-    os.close(fd)
-
-
-def _atomic_replace_bytes(path: Path, data: bytes) -> None:
-    if path.is_symlink():
-        raise ValueError(f"{path}: symlink refused before write")
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-    tmp_path = Path(tmp_name)
-    try:
-        _write_all_fd(fd, data)
-        os.fsync(fd)
-        os.close(fd)
-        fd = -1
-        os.chmod(tmp_path, 0o644)
-        os.replace(tmp_path, path)
-    except BaseException:
-        if fd >= 0:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-        raise
 
 
 def _parse_ac_list(raw_ac: str | None) -> tuple[bool, list[str]]:
@@ -780,26 +632,28 @@ def _hash_bound_artifact(
 
     if mode == "head-sha" and git_top is not None and head_sha:
         art_git_rel = art_path.relative_to(git_top).as_posix()
-        try:
-            head_art_bytes = subprocess.check_output(
-                ["git", "--literal-pathspecs", "-C", str(git_top), "show", f"{head_sha}:{art_git_rel}"],
-                stderr=subprocess.DEVNULL,
-            )
-        except (OSError, subprocess.CalledProcessError) as exc:
+        with GitCatFileBatch(git_top) as batch:
+            tree_mode = batch.tree_entry_mode(head_sha, art_git_rel)
+            if tree_mode is None:
+                raise ValueError(
+                    f"--mode head-sha requires '{art_rel_str}' to exist at HEAD ({head_sha})"
+                )
+            if tree_mode not in REGULAR_GIT_BLOB_MODES:
+                raise ValueError(
+                    f"--mode head-sha requires '{art_rel_str}' to be a regular file at HEAD (got mode {tree_mode})"
+                )
+            head_art_bytes = batch.read_blob(f"{head_sha}:{art_git_rel}")
+            chk_head = batch.check(f"HEAD:{art_git_rel}")
+        if head_art_bytes is None or chk_head is None:
             raise ValueError(
                 f"--mode head-sha requires '{art_rel_str}' to exist at HEAD ({head_sha})"
-            ) from exc
+            )
         ho_proc = subprocess.run(
             ["git", "--literal-pathspecs", "-C", str(git_top), "hash-object", "--", art_git_rel],
             capture_output=True,
             text=True,
         )
-        rp_proc = subprocess.run(
-            ["git", "--literal-pathspecs", "-C", str(git_top), "rev-parse", "--verify", f"HEAD:{art_git_rel}"],
-            capture_output=True,
-            text=True,
-        )
-        if ho_proc.returncode != 0 or rp_proc.returncode != 0 or ho_proc.stdout.strip() != rp_proc.stdout.strip():
+        if ho_proc.returncode != 0 or ho_proc.stdout.strip() != chk_head[0]:
             raise ValueError(
                 f"working-tree '{art_rel_str}' differs from HEAD ({head_sha}); commit changes or use --mode self"
             )

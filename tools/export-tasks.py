@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Export tasks from a feature's 4. Tasks.md or 1. Mini Spec.md to JSON, Markdown, gh commands, or GitHub Issues."""
 
+from __future__ import annotations
+
 import sys
 
 sys.dont_write_bytecode = True
 
 import argparse
 import json
-import os
 import re
 import shlex
 import shutil
@@ -19,25 +20,71 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+REQUIRED_CORE_SYMBOLS = (
+    "SDD_CORE_API_VERSION",
+    "parse_frontmatter",
+    "read_text_nofollow",
+    "write_new_exclusive",
+)
+
 try:
-    from docs_validation import (  # noqa: E402
-        MINI_SPEC_FILE,
-        SPEC_PACK_FILES,
-        parse_execution_tasks as dv_parse_execution_tasks,
-        parse_frontmatter as dv_parse_frontmatter,
-        read_markdown,
-        validate_clarify_gate,
-        validate_feature_folder,
-    )
+    import _sdd_core  # noqa: E402
 except ImportError as exc:
     print(
-        f"FAIL: export-tasks.py requires docs_validation.py in {SCRIPT_DIR} "
-        f"(run 'setup.sh --update' to restore the validator bundle): {exc}",
+        f"FAIL: export-tasks.py requires tools/_sdd_core.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if user-owned): {exc}",
         file=sys.stderr,
     )
     sys.exit(1)
 
-ROOT = SCRIPT_DIR.parent
+missing_core = [sym for sym in REQUIRED_CORE_SYMBOLS if not hasattr(_sdd_core, sym)]
+if getattr(_sdd_core, "SDD_CORE_API_VERSION", 0) < 1 or missing_core:
+    print(
+        f"FAIL: export-tasks.py requires an up-to-date tools/_sdd_core.py (SDD_CORE_API_VERSION >= 1) in {SCRIPT_DIR} "
+        "(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if tools/_sdd_core.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+REQUIRED_DV_SYMBOLS = (
+    "MINI_SPEC_FILE",
+    "SPEC_PACK_FILES",
+    "compute_contract_sha256",
+    "parse_execution_tasks",
+    "parse_frontmatter",
+    "read_markdown",
+    "validate_clarify_gate",
+    "validate_feature_folder",
+)
+
+try:
+    import docs_validation as _dv  # noqa: E402
+except ImportError as exc:
+    print(
+        f"FAIL: export-tasks.py requires docs_validation.py in {SCRIPT_DIR} "
+        f"(run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned): {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+missing_dv = [sym for sym in REQUIRED_DV_SYMBOLS if not hasattr(_dv, sym)]
+if missing_dv:
+    print(
+        f"FAIL: export-tasks.py requires an up-to-date docs_validation.py in {SCRIPT_DIR} "
+        f"(missing: {', '.join(missing_dv)}; run 'setup.sh --update', or 'setup.sh --update --force' / manual sync if docs_validation.py is user-owned)",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+MINI_SPEC_FILE = _dv.MINI_SPEC_FILE
+SPEC_PACK_FILES = _dv.SPEC_PACK_FILES
+dv_parse_execution_tasks = _dv.parse_execution_tasks
+dv_parse_frontmatter = _sdd_core.parse_frontmatter
+read_markdown = _dv.read_markdown
+validate_clarify_gate = _dv.validate_clarify_gate
+validate_feature_folder = _dv.validate_feature_folder
+
+DEFAULT_ROOT = SCRIPT_DIR.parent
 
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.:/-]{0,49}$")
@@ -50,9 +97,9 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def walk_safe_inside_root(start_dir: Path, parts: tuple[str, ...], raw_label: str) -> Path:
-    if ROOT.is_symlink():
-        fail(f"repository root cannot be a symlink: {ROOT}")
+def walk_safe_inside_root(root: Path, start_dir: Path, parts: tuple[str, ...], raw_label: str) -> Path:
+    if root.is_symlink():
+        fail(f"repository root cannot be a symlink: {root}")
     cur = start_dir
     for part in parts:
         if part in ("", "."):
@@ -60,40 +107,40 @@ def walk_safe_inside_root(start_dir: Path, parts: tuple[str, ...], raw_label: st
         if cur.is_symlink():
             fail(f"symlink path component refused in '{raw_label}': {cur}")
         if part == "..":
-            if cur == ROOT:
+            if cur == root:
                 fail(f"path escapes repository root: {raw_label}")
             cur = cur.parent
             continue
         cur = cur / part
         if cur.is_symlink():
-            rel = cur.relative_to(ROOT).as_posix() if cur.is_relative_to(ROOT) else str(cur)
+            rel = cur.relative_to(root).as_posix() if cur.is_relative_to(root) else str(cur)
             fail(f"symlink path component refused in '{raw_label}': {rel}")
     return cur
 
 
-def match_root_prefix(abs_path: Path) -> tuple[str, ...] | None:
+def match_root_prefix(root: Path, abs_path: Path) -> tuple[str, ...] | None:
     chain = list(reversed(abs_path.parents)) + [abs_path]
     for candidate in chain:
         try:
             if candidate.is_symlink():
                 continue
-            if candidate.exists() and candidate.resolve() == ROOT:
+            if candidate.exists() and candidate.resolve() == root:
                 return abs_path.parts[len(candidate.parts) :]
         except OSError:
             continue
     return None
 
 
-def resolve_safe_repo_path(raw_arg: str, must_exist: bool) -> Path:
+def resolve_safe_repo_path(root: Path, raw_arg: str, must_exist: bool) -> Path:
     if not raw_arg or not raw_arg.strip():
         fail("empty path argument is not allowed")
     raw_path = Path(raw_arg)
 
     if raw_path.is_absolute():
-        tail_parts = match_root_prefix(raw_path)
+        tail_parts = match_root_prefix(root, raw_path)
         if tail_parts is None:
             fail(f"path escapes repository root: {raw_arg}")
-        resolved_lexical = walk_safe_inside_root(ROOT, tail_parts, raw_arg)
+        resolved_lexical = walk_safe_inside_root(root, root, tail_parts, raw_arg)
     else:
         cwd = Path.cwd()
         try:
@@ -101,28 +148,28 @@ def resolve_safe_repo_path(raw_arg: str, must_exist: bool) -> Path:
         except OSError as exc:
             fail(f"unable to resolve working directory: {exc}")
 
-        if cwd_resolved.is_relative_to(ROOT):
-            start_rel = cwd_resolved.relative_to(ROOT).parts
-            start_dir = walk_safe_inside_root(ROOT, start_rel, str(cwd))
-            resolved_lexical = walk_safe_inside_root(start_dir, raw_path.parts, raw_arg)
+        if cwd_resolved.is_relative_to(root):
+            start_rel = cwd_resolved.relative_to(root).parts
+            start_dir = walk_safe_inside_root(root, root, start_rel, str(cwd))
+            resolved_lexical = walk_safe_inside_root(root, start_dir, raw_path.parts, raw_arg)
         else:
             cwd_joined = cwd / raw_path
-            tail_parts = match_root_prefix(cwd_joined)
+            tail_parts = match_root_prefix(root, cwd_joined)
             if tail_parts is not None:
-                resolved_lexical = walk_safe_inside_root(ROOT, tail_parts, raw_arg)
+                resolved_lexical = walk_safe_inside_root(root, root, tail_parts, raw_arg)
             else:
-                resolved_lexical = walk_safe_inside_root(ROOT, raw_path.parts, raw_arg)
+                resolved_lexical = walk_safe_inside_root(root, root, raw_path.parts, raw_arg)
 
     if must_exist:
         if not resolved_lexical.exists():
             fail(f"path does not exist: {raw_arg}")
-        if not resolved_lexical.resolve().is_relative_to(ROOT):
+        if not resolved_lexical.resolve().is_relative_to(root):
             fail(f"path escapes repository root: {raw_arg}")
     else:
         parent_probe = resolved_lexical.parent
-        while not parent_probe.exists() and parent_probe != ROOT:
+        while not parent_probe.exists() and parent_probe != root:
             parent_probe = parent_probe.parent
-        if not parent_probe.resolve().is_relative_to(ROOT):
+        if not parent_probe.resolve().is_relative_to(root):
             fail(f"output path escapes repository root: {raw_arg}")
 
     return resolved_lexical
@@ -270,26 +317,15 @@ def validate_labels(raw_labels: list[str]) -> list[str]:
     return cleaned
 
 
-def write_output_exclusive(out_path: Path, content: str) -> None:
+def write_output_exclusive(root: Path, out_path: Path, content: str) -> None:
+    rel = out_path.relative_to(root).as_posix()
     if out_path.exists() or out_path.is_symlink():
-        rel = out_path.relative_to(ROOT).as_posix()
         fail(f"refusing to overwrite existing output path: {rel}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(out_path, flags, 0o644)
-    except FileExistsError:
-        rel = out_path.relative_to(ROOT).as_posix()
+        _sdd_core.write_new_exclusive(out_path, content.encode("utf-8"))
+    except ValueError:
         fail(f"refusing to overwrite existing output path: {rel}")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-    except Exception:
-        try:
-            out_path.unlink()
-        except OSError:
-            pass
-        raise
 
 
 def apply_github_issues(
@@ -384,7 +420,7 @@ def apply_github_issues(
         print(f"CREATED: {prefix} {created_ref}")
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export tasks from 4. Tasks.md or 1. Mini Spec.md offline or idempotently to GitHub Issues."
     )
@@ -429,11 +465,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         dest="labels",
         help="Repeatable GitHub issue label (validated and passed as --label=<name>).",
     )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=DEFAULT_ROOT,
+        help="Repository root containing docs/current (defaults to parent directory of tools/).",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.root.is_symlink():
+        fail(f"repository root cannot be a symlink: {args.root}")
+    root = args.root.resolve()
 
     if args.repo is not None:
         validate_repo_slug(args.repo)
@@ -441,17 +486,17 @@ def main(argv: list[str] | None = None) -> int:
         fail("--apply-gh requires explicit --repo OWNER/REPO")
     labels = validate_labels(args.labels)
 
-    target_path = resolve_safe_repo_path(args.target, must_exist=True)
+    target_path = resolve_safe_repo_path(root, args.target, must_exist=True)
     if target_path.is_dir():
         mini_candidate = target_path / MINI_SPEC_FILE
         tasks4_candidate = target_path / "4. Tasks.md"
         for cand in (mini_candidate, tasks4_candidate):
             if cand.is_symlink():
-                fail(f"symlink refused: {cand.relative_to(ROOT).as_posix()}")
+                fail(f"symlink refused: {cand.relative_to(root).as_posix()}")
         if mini_candidate.is_file() and tasks4_candidate.is_file():
             fail(
                 f"cannot mix '{MINI_SPEC_FILE}' and '4. Tasks.md' in directory: "
-                f"{target_path.relative_to(ROOT).as_posix()}"
+                f"{target_path.relative_to(root).as_posix()}"
             )
         if mini_candidate.is_file():
             tasks_path = mini_candidate
@@ -460,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             fail(
                 f"neither 4. Tasks.md nor {MINI_SPEC_FILE} found in directory: "
-                f"{target_path.relative_to(ROOT).as_posix()}"
+                f"{target_path.relative_to(root).as_posix()}"
             )
     elif target_path.is_file():
         if target_path.name not in {"4. Tasks.md", MINI_SPEC_FILE}:
@@ -473,18 +518,21 @@ def main(argv: list[str] | None = None) -> int:
         fail(f"target is neither a regular file nor directory: {args.target}")
 
     feature_dir = tasks_path.parent
-    if feature_dir == ROOT:
+    if feature_dir == root:
         fail(f"{tasks_path.name} must reside inside a feature directory")
 
     out_path: Path | None = None
     if args.output is not None:
-        out_path = resolve_safe_repo_path(args.output, must_exist=False)
+        out_path = resolve_safe_repo_path(root, args.output, must_exist=False)
         if out_path.exists() or out_path.is_symlink():
-            fail(f"refusing to overwrite existing output path: {out_path.relative_to(ROOT).as_posix()}")
+            fail(f"refusing to overwrite existing output path: {out_path.relative_to(root).as_posix()}")
 
-    source_rel = tasks_path.relative_to(ROOT).as_posix()
+    source_rel = tasks_path.relative_to(root).as_posix()
     feature_slug = feature_dir.name
-    text = read_markdown(tasks_path)
+    try:
+        text = read_markdown(tasks_path)
+    except ValueError as exc:
+        fail(str(exc))
     if not text.startswith("---"):
         fail(f"{source_rel}: missing YAML frontmatter")
 
@@ -509,20 +557,23 @@ def main(argv: list[str] | None = None) -> int:
     ]
     for pf in pack_files:
         if pf.is_symlink():
-            fail(f"symlink refused: {pf.relative_to(ROOT).as_posix()}")
-        pf_fm = dv_parse_frontmatter(read_markdown(pf))
+            fail(f"symlink refused: {pf.relative_to(root).as_posix()}")
+        try:
+            pf_fm = dv_parse_frontmatter(read_markdown(pf))
+        except ValueError as exc:
+            fail(str(exc))
         pf_status = pf_fm.get("status", "").strip().lower()
         if pf_status in {"superseded", "archived"}:
             pf_sup = pf_fm.get("superseded_by", "").strip()
             pf_hint = f" (superseded_by: {pf_sup})" if pf_sup else ""
-            fail(f"{pf.relative_to(ROOT).as_posix()}: refusing to export {pf_status} feature pack{pf_hint}")
+            fail(f"{pf.relative_to(root).as_posix()}: refusing to export {pf_status} feature pack{pf_hint}")
 
     try:
         if not args.allow_draft:
-            validate_clarify_gate(ROOT, pack_files, strict=False)
-            validate_feature_folder(ROOT, feature_dir, require_tasks=True, strict=False)
+            validate_clarify_gate(root, pack_files, strict=False)
+            validate_feature_folder(root, feature_dir, require_tasks=True, strict=False)
         else:
-            validate_feature_folder(ROOT, feature_dir, require_tasks=False, strict=False)
+            validate_feature_folder(root, feature_dir, require_tasks=False, strict=False)
     except ValueError as exc:
         fail(str(exc))
 
@@ -553,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
         rendered = format_gh_commands(repo_for_render, tasks, labels)
 
     if out_path is not None:
-        write_output_exclusive(out_path, rendered)
+        write_output_exclusive(root, out_path, rendered)
     elif not args.apply_gh:
         sys.stdout.write(rendered)
 

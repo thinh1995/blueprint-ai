@@ -27,7 +27,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: runner.os == 'Linux'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.14.0
       - name: Validate installer and template tests
@@ -39,9 +40,18 @@ jobs:
           bash setup.sh --doctor
           python3 -B tests/validate-antigravity-conformance-fixture.py
           python3 -B tools/validate-task-evidence.py --evidence-dir docs/internal/task-evidence --require-completed
-          npm install -g @mermaid-js/mermaid-cli@11.4.2
           if [ "$RUNNER_OS" = "Linux" ]; then
-            MMDC_PUPPETEER_CONFIG=tests/puppeteer-no-sandbox.json bash tests/render-mermaid.sh
+            CHROME_BIN="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+            if [ -n "$CHROME_BIN" ]; then
+              PUPPETEER_SKIP_DOWNLOAD=true npm install --no-save --no-package-lock --ignore-scripts --prefix "$HOME/.mermaid-cli" @mermaid-js/mermaid-cli@11.4.2
+              PUP_CFG="$(mktemp "${TMPDIR:-/tmp}/puppeteer-cfg.XXXXXX.json")"
+              python3 -B -c 'import json, pathlib, sys; pathlib.Path(sys.argv[1]).write_text(json.dumps({"args": ["--no-sandbox"], "executablePath": sys.argv[2]}), encoding="utf-8")' "$PUP_CFG" "$CHROME_BIN"
+              MMDC_BIN="$HOME/.mermaid-cli/node_modules/.bin/mmdc" MMDC_PUPPETEER_CONFIG="$PUP_CFG" bash tests/render-mermaid.sh
+              rm -f "$PUP_CFG"
+            else
+              npm install --no-save --no-package-lock --prefix "$HOME/.mermaid-cli" @mermaid-js/mermaid-cli@11.4.2
+              MMDC_BIN="$HOME/.mermaid-cli/node_modules/.bin/mmdc" MMDC_PUPPETEER_CONFIG=tests/puppeteer-no-sandbox.json bash tests/render-mermaid.sh
+            fi
           else
-            bash tests/render-mermaid.sh
+            bash tests/render-mermaid.sh --extract-only
           fi

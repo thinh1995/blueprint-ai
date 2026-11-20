@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Validate the repository's static documentation-sub-agent orchestration contract."""
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -20,6 +22,7 @@ def main() -> None:
     runtime = ROOT / "docs/current/00 - Onboarding/5. Model Runtime Instructions.md"
     contract = ROOT / "docs/templates/2. Documentation Subagent Contract.md"
     matrix = ROOT / "docs/internal/acceptance-matrices/V4_ACCEPTANCE_MATRIX.md"
+    sdd_docs = ROOT / "skills/sdd-docs/SKILL.md"
 
     for text in [
         "creating specialized sub-agents is mandatory before any documentation write",
@@ -38,6 +41,14 @@ def main() -> None:
         require_text(policy, text)
     for text in ["BẮT BUỘC tạo các sub-agent phù hợp", "không nói rằng đã tạo sub-agent"]:
         require_text(prompt, text)
+    for text in [
+        "source discovery",
+        "2. Documentation Subagent Contract.md",
+        "Fact / Assumption / Unknown",
+        "sequentially",
+        "never claim sub-agents were created",
+    ]:
+        require_text(sdd_docs, text)
     for text in [
         "Codex-compatible host",
         "Claude Code",

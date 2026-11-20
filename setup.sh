@@ -6,7 +6,7 @@ FORCE=false; DRY_RUN=false; WITH_ADVANCED_DOCS=false; WITH_LEGACY_AGENTS=false
 UPDATE=false; DOCTOR=false; STRICT_DOCTOR=false; FORCE_INTERACTIVE=false
 MODELS_OPTION_PROVIDED=false; SET_MODELS_PROVIDED=false; PRESET_OPTION_PROVIDED=false
 WITH_SKILLS=true; WITHOUT_SKILLS_PROVIDED=false; MANIFEST_UPDATE_ALLOWED=true
-VALIDATOR_BUNDLE_MANAGED=true; NEW_FEATURE_MANAGED=true; EXPORT_TASKS_MANAGED=true
+VALIDATOR_BUNDLE_MANAGED=true
 MIGRATION_PLAN=""; SELECTED_MODELS=""; MANIFEST_BASE=""; REQUESTED_MODELS=""
 UPDATE_MANAGED_ADAPTER_MODELS=""; PRESET_NAME=""
 GENERATED_MANIFEST=""; BACKUP_DIR=""; PLAN_EVENTS_FILE=""
@@ -21,6 +21,7 @@ ADAPTER_MAPPINGS=(
     "cursor|.cursor/rules/agents.mdc|adapters/cursor-agents.mdc"
     "copilot|.github/copilot-instructions.md|adapters/copilot-instructions.md"
 )
+SCHEDULED_TOOL_PATHS=(); SKIPPED_USER_TOOL_PATHS=()
 SCHEDULED_SKILL_PATHS=(); SKIPPED_USER_SKILL_PATHS=(); PRESERVED_OPTOUT_SKILL_PATHS=()
 PRUNE_FILE_PATHS=(); WARN_MODIFIED_ORPHAN_PATHS=(); ACTIVE_TEMP_FILES=(); BLOCKED_PATHS=()
 
@@ -75,10 +76,10 @@ run_doctor() {
     elif [ ! -f "$DEST_DIR/template-manifest.json" ] || [ -L "$DEST_DIR/template-manifest.json" ]; then
         echo "FAIL manifest: a regular template-manifest.json is required. Remediation: run a normal setup, or restore the managed manifest before --update." >&2; doctor_status=1
     else
-        python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-manifest "$DEST_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || doctor_status=1
+        python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-manifest "$DEST_DIR" "$SRC_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || doctor_status=1
     fi
 
-    python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-links "$DEST_DIR" || {
+    python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-links "$DEST_DIR" "$SRC_DIR" || {
         echo "Remediation: repair the reported Markdown link(s), or rerun setup.sh --update for template-managed documentation." >&2; doctor_status=1
     }
     python3 -B "$SRC_DIR/lib/installer_lib.py" doctor-spec-readiness "$DEST_DIR" "$SRC_DIR" "${strict_arg[@]+"${strict_arg[@]}"}" || {
@@ -164,7 +165,7 @@ while [ "$#" -gt 0 ]; do
         --with-advanced-docs) WITH_ADVANCED_DOCS=true ;;
         --with-legacy-agents) WITH_LEGACY_AGENTS=true ;;
         --without-skills) WITH_SKILLS=false; WITHOUT_SKILLS_PROVIDED=true ;;
-        --migration-plan) shift; [ "$#" -gt 0 ] || { echo "Error: --migration-plan requires a relative output path." >&2; exit 1; }; MIGRATION_PLAN="$1" ;;
+        --migration-plan) shift; [ "$#" -gt 0 ] && [ -n "$1" ] || { echo "Error: --migration-plan requires a relative output path." >&2; exit 1; }; MIGRATION_PLAN="$1" ;;
         --migration-plan=*) MIGRATION_PLAN="${1#--migration-plan=}"; require_opt_val "--migration-plan requires a relative output path." "$MIGRATION_PLAN" ;;
         --models|--models=*)
             [ "$MODELS_OPTION_PROVIDED" = false ] || { echo "Error: --models can only be provided once." >&2; exit 1; }
@@ -195,7 +196,16 @@ if [ "$DOCTOR" = true ] && { [ "$UPDATE" = true ] || [ "$DRY_RUN" = true ] || [ 
     exit 1
 fi
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+resolve_script_dir() {
+    local src="${BASH_SOURCE[0]}" dir link_target hops=0
+    while [ -L "$src" ]; do
+        hops=$((hops + 1)); [ "$hops" -le 40 ] || { echo "Error: Too many symlink levels resolving setup.sh." >&2; exit 1; }
+        dir="$(cd -P "$(dirname "$src")" && pwd -P)"; link_target="$(readlink "$src")"
+        [[ "$link_target" == /* ]] && src="$link_target" || src="$dir/$link_target"
+    done
+    cd -P "$(dirname "$src")" && pwd -P
+}
+SRC_DIR="$(resolve_script_dir)"
 DEST_DIR="$(pwd -P)"
 
 if [[ "$SRC_DIR" == "$DEST_DIR" || "$DEST_DIR" == "$SRC_DIR"/* ]]; then
@@ -216,7 +226,8 @@ fi
 if [ -n "$MIGRATION_PLAN" ]; then
     [ "$UPDATE" = true ] && [ "$DRY_RUN" = true ] || { echo "Error: --migration-plan requires --dry-run --update." >&2; exit 1; }
     case "$MIGRATION_PLAN" in
-        /*|*".."*|*"$'\n'"*|*"$'\r'"*) echo "Error: --migration-plan must be a safe relative output path." >&2; exit 1 ;;
+        -*|/*|*/|.|..|./*|../*|*/.|*/..|*/./*|*/../*|*//*|*$'\n'*|*$'\r'*|*[[:cntrl:]]*)
+            echo "Error: --migration-plan must be a safe relative output path." >&2; exit 1 ;;
     esac
     if [ -e "$DEST_DIR/$MIGRATION_PLAN" ] || [ -L "$DEST_DIR/$MIGRATION_PLAN" ]; then
         echo "Error: Refusing to overwrite existing migration plan: $MIGRATION_PLAN" >&2
@@ -254,17 +265,21 @@ select_update_models() {
 }
 
 validate_preset_option() {
-    local current_path="$DEST_DIR" part
+    local current_path="$DEST_DIR" part dest_ok=true
     [ "$PRESET_OPTION_PROVIDED" = true ] || return 0
     [[ "$PRESET_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "Error: Invalid --preset '$PRESET_NAME'. Expected lowercase kebab-case slug." >&2; exit 1; }
     case "$PRESET_NAME" in general|web-api|cli-tool|ai-agent|security-hardening) return 0 ;; esac
     for part in "docs" "templates" "presets" "$PRESET_NAME"; do
         current_path="$current_path/$part"
-        if [ -L "$current_path" ] || [ ! -d "$current_path" ]; then
-            echo "Error: Custom preset '$PRESET_NAME' requires an existing non-symlink directory at docs/templates/presets/$PRESET_NAME." >&2
-            exit 1
-        fi
+        { [ -L "$current_path" ] || { [ -e "$current_path" ] && [ ! -d "$current_path" ]; }; } && { echo "Error: Custom preset '$PRESET_NAME' requires an existing non-symlink directory at docs/templates/presets/$PRESET_NAME." >&2; exit 1; }
+        [ -d "$current_path" ] || { dest_ok=false; break; }
     done
+    [ "$dest_ok" = true ] && return 0; current_path="$SRC_DIR"
+    for part in "docs" "templates" "presets" "$PRESET_NAME"; do
+        current_path="$current_path/$part"
+        { [ -L "$current_path" ] || [ ! -d "$current_path" ]; } && { echo "Error: Custom preset '$PRESET_NAME' requires an existing non-symlink directory at docs/templates/presets/$PRESET_NAME." >&2; exit 1; }
+    done
+    return 0
 }
 
 if [ "$UPDATE" = true ]; then select_update_models; else select_models_interactively; fi
@@ -431,10 +446,11 @@ prune_deselected_files() {
 }
 
 copy_selected_manifest() {
-    local skipped_skills_arg=""
-    if [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ]; then
-        local IFS='|'; skipped_skills_arg="${SKIPPED_USER_SKILL_PATHS[*]}"
-    fi
+    local skipped_skills_arg="" skipped_tools_arg="" saved_ifs="$IFS"
+    IFS='|'
+    [ "${#SKIPPED_USER_SKILL_PATHS[@]}" -gt 0 ] && skipped_skills_arg="${SKIPPED_USER_SKILL_PATHS[*]}"
+    [ "${#SKIPPED_USER_TOOL_PATHS[@]}" -gt 0 ] && skipped_tools_arg="${SKIPPED_USER_TOOL_PATHS[*]}"
+    IFS="$saved_ifs"
     if [ "$MANIFEST_UPDATE_ALLOWED" = false ]; then
         echo "SKIP (unmanaged manifest): template-manifest.json"
         plan_record "manual" "template-manifest.json" "unmanaged manifest must be reviewed manually"
@@ -458,12 +474,12 @@ copy_selected_manifest() {
     fi
 
     GENERATED_MANIFEST="$(mktemp "$DEST_DIR/.ai-template-manifest.XXXXXX")"
-    cp -Pp "$SRC_DIR/template-manifest.json" "$GENERATED_MANIFEST" || return 1
     python3 -B "$SRC_DIR/lib/installer_lib.py" write-manifest \
         "$SRC_DIR" "$DEST_DIR" "$MANIFEST_BASE" "$GENERATED_MANIFEST" \
         "$REQUESTED_MODELS" "$WITH_ADVANCED_DOCS" "$WITH_LEGACY_AGENTS" \
-        "$VALIDATOR_BUNDLE_MANAGED" "$NEW_FEATURE_MANAGED" "$EXPORT_TASKS_MANAGED" \
-        "$PRESET_OPTION_PROVIDED" "$PRESET_NAME" "$WITH_SKILLS" "$skipped_skills_arg" || return 1
+        "$VALIDATOR_BUNDLE_MANAGED" "$PRESET_OPTION_PROVIDED" "$PRESET_NAME" \
+        "$WITH_SKILLS" "$skipped_skills_arg" "$skipped_tools_arg" || return 1
+    chmod 0644 "$GENERATED_MANIFEST" || return 1
 
     backup_existing_file "template-manifest.json"
     [ -L "$DEST_DIR/template-manifest.json" ] && { echo "Error: Refusing to overwrite symlink: template-manifest.json" >&2; return 1; }
@@ -473,20 +489,36 @@ copy_selected_manifest() {
     INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
 }
 
+bootstrap_or_check_gitignore() {
+    local gi="$DEST_DIR/.gitignore" tmp_gi
+    if [ -f "$gi" ] && [ ! -L "$gi" ]; then
+        grep -Fq ".ai-template-backup" "$gi" || echo "WARN: .gitignore does not ignore '.ai-template-backup.*/'; add '.ai-template-backup.*/' to .gitignore to avoid committing update backups."; return 0
+    elif [ -L "$gi" ]; then
+        [ "$UPDATE" = false ] && [ "$DRY_RUN" = true ] && [ "$FORCE" = true ] || echo "WARN: .gitignore is a symlink; skipping .gitignore check — ensure '.ai-template-backup.*/' is git-ignored."; return 0
+    fi
+    [ "$UPDATE" = false ] && [ ! -e "$gi" ] || return 0
+    [ "$DRY_RUN" = true ] && { echo "INSTALL: .gitignore"; PLANNED_COUNT=$((PLANNED_COUNT + 1)); return 0; }
+    tmp_gi="$(mktemp "$DEST_DIR/.ai-template.XXXXXX")"; ACTIVE_TEMP_FILES+=("$tmp_gi")
+    printf '%s\n' '# AI template local backups & ephemeral artifacts' '.ai-template-backup.*/' 'plans/' '.DS_Store' '__pycache__/' > "$tmp_gi"; chmod 0644 "$tmp_gi"
+    [ -L "$gi" ] && { rm -f "$tmp_gi"; echo "Error: Refusing to overwrite symlink: .gitignore" >&2; return 1; }
+    mv -f "$tmp_gi" "$gi"; ACTIVE_TEMP_FILES=("${ACTIVE_TEMP_FILES[@]:0:${#ACTIVE_TEMP_FILES[@]}-1}")
+    echo "INSTALLED: .gitignore"; INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+}
+
 should_include_doc() {
     local relative_path="$1" profile_path
-    for profile_path in "${OPTIONAL_ADVANCED_DOCS[@]}"; do
+    for profile_path in ${OPTIONAL_ADVANCED_DOCS[@]+"${OPTIONAL_ADVANCED_DOCS[@]}"}; do
         if [ "$relative_path" = "$profile_path" ] || [[ "$relative_path" == "$profile_path/"* ]]; then
-            [ "$WITH_ADVANCED_DOCS" = true ]; return
+            [ "$WITH_ADVANCED_DOCS" = true ] && return 0 || return 1
         fi
     done
-    for profile_path in "${CORE_PROFILE_PATHS[@]}"; do
+    for profile_path in ${CORE_PROFILE_PATHS[@]+"${CORE_PROFILE_PATHS[@]}"}; do
         if [ "$relative_path" = "$profile_path" ] || [[ "$relative_path" == "$profile_path/"* ]]; then
             return 0
         fi
     done
     echo "Error: Template documentation is not assigned to an installation profile: $relative_path" >&2
-    return 1
+    return 2
 }
 
 report_blocked_path() {
@@ -577,17 +609,18 @@ check_destination_path() {
 
 prepare_ownership() {
     local ownership_lines line kind val
+    SCHEDULED_TOOL_PATHS=(); SKIPPED_USER_TOOL_PATHS=()
     SCHEDULED_SKILL_PATHS=(); SKIPPED_USER_SKILL_PATHS=(); PRESERVED_OPTOUT_SKILL_PATHS=()
     PRUNE_FILE_PATHS=(); WARN_MODIFIED_ORPHAN_PATHS=()
     ownership_lines="$(python3 -B "$SRC_DIR/lib/installer_lib.py" prepare-ownership \
-        "$SRC_DIR" "$DEST_DIR" "$SELECTED_MODELS" "$WITH_SKILLS" "$FORCE" "$UPDATE" "$SET_MODELS_PROVIDED")"
+        "$SRC_DIR" "$DEST_DIR" "$SELECTED_MODELS" "$WITH_SKILLS" "$FORCE" "$UPDATE" "$SET_MODELS_PROVIDED" "$REQUESTED_MODELS")"
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         IFS='|' read -r kind val <<< "$line"
         case "$kind" in
             VALIDATOR_BUNDLE) VALIDATOR_BUNDLE_MANAGED="$val" ;;
-            NEW_FEATURE) NEW_FEATURE_MANAGED="$val" ;;
-            EXPORT_TASKS) EXPORT_TASKS_MANAGED="$val" ;;
+            SCHEDULE_TOOL) SCHEDULED_TOOL_PATHS+=("$val") ;;
+            USER_TOOL) SKIPPED_USER_TOOL_PATHS+=("$val") ;;
             SCHEDULE_SKILL) SCHEDULED_SKILL_PATHS+=("$val") ;;
             USER_SKILL) SKIPPED_USER_SKILL_PATHS+=("$val") ;;
             OPTOUT_SKILL) PRESERVED_OPTOUT_SKILL_PATHS+=("$val") ;;
@@ -598,15 +631,17 @@ prepare_ownership() {
 }
 
 preflight_destinations() {
-    local source_file relative_path mapping model adapter_dest adapter_src failed=false
+    local source_file relative_path mapping model adapter_dest adapter_src doc_rc failed=false
     prepare_manifest_models || failed=true
     prepare_ownership
-    for relative_path in "AGENTS.md" "template-manifest.json" "tools/validate-task-evidence.py" "task-evidence/.gitkeep"; do
+    [ "$UPDATE" = false ] && { [ ! -f "$DEST_DIR/.gitignore" ] || [ -L "$DEST_DIR/.gitignore" ]; } && { check_destination_path ".gitignore" || failed=true; }
+    for relative_path in "AGENTS.md" "template-manifest.json" "task-evidence/.gitkeep"; do
         check_destination_path "$relative_path" || failed=true
     done
     [ "$VALIDATOR_BUNDLE_MANAGED" = true ] && { check_destination_path "tools/docs_validation.py" || failed=true; check_destination_path "tools/validate-docs.py" || failed=true; }
-    [ "$NEW_FEATURE_MANAGED" = true ] && { check_destination_path "tools/new-feature.py" || failed=true; }
-    [ "$EXPORT_TASKS_MANAGED" = true ] && { check_destination_path "tools/export-tasks.py" || failed=true; }
+    for relative_path in ${SCHEDULED_TOOL_PATHS[@]+"${SCHEDULED_TOOL_PATHS[@]}"}; do
+        check_destination_path "$relative_path" || failed=true
+    done
     for mapping in "${ADAPTER_MAPPINGS[@]}"; do
         IFS='|' read -r model adapter_dest adapter_src <<< "$mapping"
         adapter_selected_for_copy "$model" && { check_destination_path "$adapter_dest" || failed=true; }
@@ -621,7 +656,8 @@ preflight_destinations() {
     fi
     while IFS= read -r -d '' source_file; do
         relative_path="${source_file#"$SRC_DIR/"}"
-        should_include_doc "$relative_path" || continue
+        doc_rc=0; should_include_doc "$relative_path" || doc_rc=$?
+        if [ "$doc_rc" -eq 1 ]; then continue; elif [ "$doc_rc" -ne 0 ]; then failed=true; continue; fi
         check_destination_path "$relative_path" || failed=true
     done < <(find_template_docs)
     if [ "$failed" = true ]; then
@@ -655,17 +691,6 @@ for mapping in "${ADAPTER_MAPPINGS[@]}"; do
     fi
 done
 
-copy_managed_sdd_tool() {
-    if [ "$1" = true ]; then
-        copy_file "$SRC_DIR/tools/$2" "tools/$2"
-    else
-        echo "SKIP (user-owned tool): tools/$2"
-        plan_record "manual" "tools/$2" "user-owned SDD tool will be preserved"
-        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-    fi
-}
-
-copy_file "$SRC_DIR/tools/validate-task-evidence.py" "tools/validate-task-evidence.py"
 copy_file "$SRC_DIR/task-evidence/.gitkeep" "task-evidence/.gitkeep"
 if [ "$VALIDATOR_BUNDLE_MANAGED" = true ]; then
     copy_file "$SRC_DIR/tools/docs_validation.py" "tools/docs_validation.py"
@@ -676,8 +701,14 @@ else
     plan_record "manual" "tools/validate-docs.py" "user-owned validator bundle will be preserved"
     SKIPPED_COUNT=$((SKIPPED_COUNT + 2))
 fi
-copy_managed_sdd_tool "$NEW_FEATURE_MANAGED" "new-feature.py"
-copy_managed_sdd_tool "$EXPORT_TASKS_MANAGED" "export-tasks.py"
+for relative_path in ${SCHEDULED_TOOL_PATHS[@]+"${SCHEDULED_TOOL_PATHS[@]}"}; do
+    copy_file "$SRC_DIR/$relative_path" "$relative_path"
+done
+for relative_path in ${SKIPPED_USER_TOOL_PATHS[@]+"${SKIPPED_USER_TOOL_PATHS[@]}"}; do
+    echo "SKIP (user-owned tool): $relative_path"
+    plan_record "manual" "$relative_path" "user-owned SDD tool will be preserved"
+    SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+done
 
 if [ "$WITH_LEGACY_AGENTS" = true ]; then
     for relative_path in ${OPTIONAL_LEGACY_PATHS[@]+"${OPTIONAL_LEGACY_PATHS[@]}"}; do
@@ -703,11 +734,14 @@ prune_deselected_files
 
 while IFS= read -r -d '' source_file; do
     relative_path="${source_file#"$SRC_DIR/"}"
-    should_include_doc "$relative_path" || continue
+    doc_rc=0; should_include_doc "$relative_path" || doc_rc=$?
+    if [ "$doc_rc" -eq 1 ]; then continue; elif [ "$doc_rc" -ne 0 ]; then exit 1; fi
     copy_file "$source_file" "$relative_path"
 done < <(find_template_docs)
+if [ "$DRY_RUN" = false ] && [ "$PRESET_OPTION_PROVIDED" = true ] && [ -d "$SRC_DIR/docs/templates/presets/$PRESET_NAME" ] && [ ! -e "$DEST_DIR/docs/templates/presets/$PRESET_NAME" ] && [ ! -L "$DEST_DIR/docs/templates/presets/$PRESET_NAME" ]; then mkdir -p "$DEST_DIR/docs/templates/presets/$PRESET_NAME"; fi
 
 migrate_renamed_template_files
+bootstrap_or_check_gitignore
 copy_selected_manifest
 write_migration_plan
 

@@ -1,0 +1,30 @@
+$ bash -n setup.sh tests/setup.sh tests/validate-docs.sh tests/render-mermaid.sh && python3 -B tests/validate-skills-contract.py --self-test && PYTHONDONTWRITEBYTECODE=1 bash tests/validate-docs.sh && PYTHONDONTWRITEBYTECODE=1 bash tests/setup.sh < /dev/null && PYTHONDONTWRITEBYTECODE=1 bash setup.sh --doctor && python3 -B tools/validate-docs.py --require-tasks --strict && bash tests/render-mermaid.sh --extract-only
+[exit_code=0]
+PASS: validate-skills-contract self-test verified
+PASS: template documentation, links, Mermaid structure, and traceability
+PASS: canonical SDD skill contracts verified
+PASS: validate-skills-contract self-test verified
+PASS: documentation sub-agent orchestration contract
+PASS: runtime delegation evidence schema fixture
+PASS: Antigravity CLI conformance fixture
+PASS: semantic Clarify gate, Mini-Spec, Git tampering, URI/embed, task-evidence, stamp-spec, owned-paths, record-evidence, and [P] concurrency fixtures
+PASS: documentation guardrail validation
+PASS: downstream documentation links and Mermaid structure
+PASS: task evidence and inventory validation
+PASS: setup installer regression tests
+AI template doctor: /Users/lucifer/Documents/Projects/Prime/ai-project-template
+PASS Bash: 3.2.57(1)-release
+PASS Python: Python 3.12.3
+PASS policy: AGENTS.md is a regular canonical policy file
+PASS manifest: template-owned (source template); version=0.7.0
+PASS adapters: static runtime adapters and system-prompt template delegate to AGENTS.md
+PASS tools: source SDD and validation scripts verified in tools/ and lib/
+PASS skills: 9 canonical SDD skills verified
+PASS docs links: local Markdown targets resolve
+PASS spec readiness: Clarify gate, Mermaid structure, and cross-spec traceability verified
+Doctor result: READY
+PASS: downstream documentation links and Mermaid structure
+PASS: extracted 9 Mermaid diagram(s)
+
+--- stderr ---
+warning: in the working copy of 'task-evidence/artifacts/crlf.log', CRLF will be replaced by LF the next time Git touches it

@@ -1,0 +1,33 @@
+$ python3 -B -c 'import ast, pathlib, subprocess, sys, time; subprocess.run(["bash", "-n", "setup.sh", "tests/setup.sh", "tests/validate-docs.sh", "tests/render-mermaid.sh", "template-paths.sh"], check=True); [ast.parse(p.read_bytes(), filename=str(p)) for d in ("lib", "tools", "tests") for p in sorted(pathlib.Path(d).glob("*.py"))]; print("PASS: bash -n and Python ast.parse"); t0 = time.perf_counter(); subprocess.run(["bash", "tests/setup.sh"], stdin=subprocess.DEVNULL, check=True); t1 = time.perf_counter(); subprocess.run(["bash", "tests/validate-docs.sh"], check=True); t2 = time.perf_counter(); print(f"BENCHMARK: SETUP={t1-t0:.2f}s VALIDATE_DOCS={t2-t1:.2f}s TOTAL_SECONDS={t2-t0:.2f}s"); assert (t2 - t0) < 15.0, f"Exceeded 15s budget: {t2-t0:.2f}s"; subprocess.run(["bash", "setup.sh", "--doctor"], check=True); subprocess.run([sys.executable, "-B", "tests/validate-skills-contract.py", "--self-test"], check=True); subprocess.run([sys.executable, "-B", "tests/validate-antigravity-conformance-fixture.py"], check=True); subprocess.run(["bash", "tests/render-mermaid.sh", "--extract-only"], check=True); subprocess.run([sys.executable, "-B", "tools/validate-docs.py", "--require-tasks", "--strict"], check=True)'
+[exit_code=0]
+PASS: setup installer regression tests
+PASS: documentation guardrail validation
+AI template doctor: /Users/lucifer/Documents/Projects/Prime/ai-project-template
+PASS Bash: 3.2.57(1)-release
+PASS Python: Python 3.12.3
+PASS policy: AGENTS.md is a regular canonical policy file
+PASS manifest: template-owned (source template); version=0.7.2
+PASS adapters: static runtime adapters and system-prompt template delegate to AGENTS.md
+PASS tools: source SDD and validation scripts verified in tools/ and lib/
+PASS skills: 9 canonical SDD skills verified
+PASS docs links: local Markdown targets resolve
+PASS spec readiness: Clarify gate, Mermaid structure, and cross-spec traceability verified
+Doctor result: READY
+PASS: validate-skills-contract self-test verified
+PASS: Antigravity CLI conformance fixture
+PASS: extracted 9 Mermaid diagram(s)
+PASS: downstream documentation links and Mermaid structure
+PASS: bash -n and Python ast.parse
+BENCHMARK: SETUP=5.04s VALIDATE_DOCS=7.03s TOTAL_SECONDS=12.08s
+
+--- stderr ---
+........
+----------------------------------------------------------------------
+Ran 8 tests in 2.834s
+
+OK
+................
+----------------------------------------------------------------------
+Ran 16 tests in 6.947s
+
+OK
